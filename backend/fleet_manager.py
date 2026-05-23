@@ -16,6 +16,7 @@ class FleetManager:
         self._last_taps: Dict[str, Optional[tuple]] = {}
         self._last_swipes: Dict[str, Optional[tuple]] = {}
         self._apk_details_cache: Dict[str, Dict[str, str]] = {}
+        self.mock_devices = ["emulator-5554-mock"]
 
     def get_device_details(self, device_id: str) -> Dict[str, str]:
         """Gets device model, brand, type (emulator/physical), and resolution."""
@@ -110,37 +111,45 @@ class FleetManager:
         except FileNotFoundError:
             return False
 
+    def create_mock_device(self) -> str:
+        """Dynamically creates a new mock emulator device ID."""
+        existing_nums = []
+        for d in self.mock_devices:
+            match = re.search(r"emulator-(\d+)-mock", d)
+            if match:
+                existing_nums.append(int(match.group(1)))
+        next_num = max(existing_nums) + 1 if existing_nums else 5554
+        new_device_id = f"emulator-{next_num}-mock"
+        self.mock_devices.append(new_device_id)
+        logger.info(f"Dynamically created new mock emulator: {new_device_id}")
+        return new_device_id
+
     def list_devices(self) -> List[str]:
-        """Runs 'adb devices' and parses connected emulator serials, falling back to simulated mock pixel devices."""
+        """Runs 'adb devices' and parses connected emulator serials, combining with simulated mock emulators."""
         if not self.is_adb_available():
             logger.warning(
-                "Android Platform Tools (adb) not found in system PATH. Fallback to Simulated Mock Emulator active."
+                "Android Platform Tools (adb) not found in system PATH. Returning active simulated mock emulators."
             )
-            return ["emulator-5554-mock"]
+            return list(self.mock_devices)
 
         res = self.run_cmd(["adb", "devices"])
-        if res.returncode != 0:
-            logger.error(f"Failed to list devices: {res.stderr}")
-            return ["emulator-5554-mock"]
-
         devices = []
-        # Parse output like:
-        # List of devices attached
-        # emulator-5554	device
-        for line in res.stdout.strip().split("\n")[1:]:
-            if not line.strip():
-                continue
-            parts = line.split()
-            if len(parts) >= 2 and parts[1] == "device":
-                devices.append(parts[0])
+        if res.returncode == 0:
+            for line in res.stdout.strip().split("\n")[1:]:
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "device":
+                    devices.append(parts[0])
+        else:
+            logger.error(f"Failed to list devices via adb: {res.stderr}")
 
-        if not devices:
-            logger.info(
-                "No physical or virtual devices connected via ADB. Instantiating local Simulated Mock Emulator."
-            )
-            return ["emulator-5554-mock"]
-
-        return devices
+        # Union of ADB-connected devices and dynamic mock devices
+        combined = list(devices)
+        for d in self.mock_devices:
+            if d not in combined:
+                combined.append(d)
+        return combined
 
     def get_device_resolution(self, device_id: str) -> Dict[str, int]:
         """Gets screen size in pixels using adb shell wm size."""
@@ -370,12 +379,12 @@ class FleetManager:
         res = self.run_cmd(["adb", "-s", device_id, "logcat", "-d"])
         return res.stdout
 
-    def take_screenshot(self, device_id: str, output_path: str) -> bool:
+    def take_screenshot(self, device_id: str, output_path: str, max_steps: int = 50) -> bool:
         """Saves device screenshot directly to output_path using piping."""
         if "mock" in device_id:
             # Increment steps and render a premium gorgeous mock screenshot dynamically using Pillow
             self._step_counters[device_id] = self._step_counters.get(device_id, 0) + 1
-            return self.generate_mock_screenshot(device_id, output_path)
+            return self.generate_mock_screenshot(device_id, output_path, max_steps=max_steps)
 
         try:
             # We use exec-out screencap -p to capture and transfer directly via stdout
@@ -536,7 +545,7 @@ class FleetManager:
         ]
         return "\n".join(log_lines)
 
-    def generate_mock_screenshot(self, device_id: str, output_path: str) -> bool:
+    def generate_mock_screenshot(self, device_id: str, output_path: str, max_steps: int = 50) -> bool:
         """Generates a premium visual screenshot for the simulated game using Pillow."""
         try:
             from PIL import (
@@ -608,7 +617,7 @@ class FleetManager:
                 font=font_subtitle,
             )
             draw.text((120, 170), f"SCORE: {score}", fill="#FFD700", font=font_title)
-            draw.text((700, 170), f"STEP: {step}/15", fill="#00FFCC", font=font_title)
+            draw.text((700, 170), f"STEP: {step}/{max_steps}", fill="#00FFCC", font=font_title)
             draw.text(
                 (120, 240),
                 "Status: Telemetry Connected (Local SDK Mode)",

@@ -1350,4 +1350,335 @@ input[type="range"] {
     width: max-content;
 }
 
+/* Step 1 Session Control Tabs & Run Cards styling */
+.session-control-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.6rem 0.85rem;
+}
 
+.session-tabs {
+    display: flex;
+    gap: 0.4rem;
+    background: hsla(220, 20%, 6%, 0.8);
+    padding: 0.2rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.session-tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.session-tab-btn:hover {
+    color: var(--text-main);
+    background: hsla(220, 20%, 12%, 0.4);
+}
+
+.session-tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.runs-list-title-row {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.25rem;
+}
+
+.runs-list-title-row h3 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.runs-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-height: 380px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+/* Elegant Run Card design */
+.run-card-item {
+    background: hsla(220, 20%, 8%, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.65rem 0.8rem;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+/* Left colored indicator strip matching execution status */
+.run-card-item::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--text-dimmed);
+    transition: var(--transition-smooth);
+}
+
+.run-card-item.playing::before { background: var(--secondary); }
+.run-card-item.completed::before { background: var(--success); }
+.run-card-item.failed::before { background: var(--danger); }
+.run-card-item.stopped::before { background: var(--warning); }
+
+.run-card-item:hover, .run-card-item.selected {
+    background: hsla(220, 20%, 10%, 0.6);
+    border-color: rgba(115, 103, 240, 0.4);
+    transform: translateX(2px);
+    box-shadow: 0 4px 15px rgba(115, 103, 240, 0.15);
+}
+
+.run-card-item.selected {
+    box-shadow: 0 4px 15px rgba(115, 103, 240, 0.25), 0 0 8px var(--primary-glow);
+    border-color: var(--primary);
+}
+
+.run-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.run-card-id {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.run-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.run-card-apk {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary-hover);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.run-card-meta {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.run-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.65rem;
+    color: var(--text-dimmed);
+    margin-top: 0.1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+    padding-top: 0.2rem;
+}
+/* runs filter sub-tabs segment controls */
+.runs-filter-tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.8rem;
+    background: hsla(220, 20%, 6%, 0.8);
+    padding: 0.2rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.runs-filter-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.4rem 0.5rem;
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    text-align: center;
+}
+
+.runs-filter-btn:hover {
+    color: var(--text-main);
+    background: hsla(220, 20%, 12%, 0.4);
+}
+
+.runs-filter-btn.active {
+    background: var(--primary-glow);
+    border: 1px solid rgba(115, 103, 240, 0.4);
+    color: var(--text-main);
+    box-shadow: 0 0 10px rgba(115, 103, 240, 0.1);
+}
+
+/* --- Premium Non-Blocking Toast Notifications --- */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 420px;
+    pointer-events: none;
+}
+
+.toast-item {
+    pointer-events: auto;
+    background: rgba(20, 24, 33, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    transform: translateX(120%);
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-item.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.toast-item.hide {
+    transform: translateX(120%);
+    opacity: 0;
+    margin-top: -60px; /* Collapse space smoothly */
+}
+
+.toast-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.toast-content {
+    flex-grow: 1;
+}
+
+.toast-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    margin-bottom: 0.25rem;
+}
+
+.toast-message {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.toast-close:hover {
+    opacity: 1;
+    color: var(--text-main);
+}
+
+/* Sleek Small Stop Button for Cockpit Header */
+.btn-danger-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid rgba(235, 57, 66, 0.4);
+    background: rgba(235, 57, 66, 0.1);
+    color: hsl(350, 95%, 75%);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.btn-danger-sm:hover:not(:disabled) {
+    background: linear-gradient(135deg, hsl(350, 70%, 50%), hsl(350, 85%, 60%));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(235, 57, 66, 0.4);
+    transform: translateY(-1px);
+}
+
+.btn-danger-sm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-danger-sm.hidden {
+    display: none !important;
+}
+
+/* Animated glowing notification for View Run tab when a new run is launched in the background */
+.session-tab-btn.pulse-notify {
+    position: relative;
+    border: 1px solid rgba(115, 103, 240, 0.6) !important;
+    animation: tabPulse 1.5s infinite alternate;
+}
+
+.session-tab-btn.pulse-notify::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    background-color: var(--secondary);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--secondary);
+}
+
+@keyframes tabPulse {
+    0% {
+        box-shadow: 0 0 2px rgba(115, 103, 240, 0.2);
+    }
+    100% {
+        box-shadow: 0 0 10px rgba(115, 103, 240, 0.6), inset 0 0 4px rgba(115, 103, 240, 0.2);
+    }
+}

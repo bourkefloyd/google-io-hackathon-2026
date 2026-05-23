@@ -223,7 +223,7 @@ async def run_agent_play_loop(
     fleet_manager: FleetManager,
     telemetry_collector: TelemetryCollector,
     logs_callback: Callable[[Dict[str, Any]], None],
-    max_steps: int = 15,
+    max_steps: int = 50,
     is_stopped_callback: Optional[Callable[[], bool]] = None,
 ):
     """Orchestrates the entire visual playing loop for a simulated player."""
@@ -408,7 +408,7 @@ async def run_agent_play_loop(
                     f"step_{step}_{int(datetime.utcnow().timestamp())}.png"
                 )
                 screenshot_path = os.path.join(run_dir, screenshot_filename)
-                if not fleet_manager.take_screenshot(device_id, screenshot_path):
+                if not fleet_manager.take_screenshot(device_id, screenshot_path, max_steps=max_steps):
                     logs_callback(
                         {
                             "status": "playing",
@@ -753,7 +753,7 @@ async def run_mock_play_loop(
 
             screenshot_filename = f"step_{step}_{int(datetime.utcnow().timestamp())}.png"
             screenshot_path = os.path.join(run_dir, screenshot_filename)
-            session_tools.fleet_manager.take_screenshot(device_id, screenshot_path)
+            session_tools.fleet_manager.take_screenshot(device_id, screenshot_path, max_steps=max_steps)
 
             # Generate LLM resized screenshot
             screenshot_llm_filename = screenshot_filename.replace(".png", "_llm.png")

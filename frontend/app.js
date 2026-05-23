@@ -24,21 +24,27 @@ const elStateBadge = document.getElementById("state-badge");
 const elTelemetryStepDetails = document.getElementById("telemetry-step-details");
 const elLogcatConsole = document.getElementById("logcat-console");
 const elClearTelemetry = document.getElementById("btn-clear-telemetry");
-const elRunSelect = document.getElementById("run-selector");
+const elBtnFilterActive = document.getElementById("btn-filter-active");
+const elBtnFilterHistoric = document.getElementById("btn-filter-historic");
 const elTimelineScrubber = document.getElementById("timeline-scrubber");
 const elTimelineStepLabel = document.getElementById("timeline-step-label");
 const elTimelineStatusDesc = document.getElementById("timeline-status-desc");
 const elBtnPrevStep = document.getElementById("btn-prev-step");
 const elBtnNextStep = document.getElementById("btn-next-step");
 
+const elBtnTabView = document.getElementById("btn-tab-view");
+const elBtnTabCreate = document.getElementById("btn-tab-create");
+const elTabContentView = document.getElementById("tab-content-view");
+const elTabContentCreate = document.getElementById("tab-content-create");
+const elRunsList = document.getElementById("runs-list");
+
 let selectedApkName = "";
-let activeEventSource = null;
 let devicesCache = [];
-let activeRunId = null;
-let isHistoricalMode = false;
-let activeRunEvents = [];
-let historicRunEvents = [];
+let runsData = {}; // maps runId -> { config: {}, events: [], logs: "" }
+let activeEventSources = {}; // maps runId -> EventSource
+let selectedRunId = "none";
 let selectedStepIndex = -1;
+let currentFilter = "active"; // active or historic
 
 // Tab Panels Switching
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -49,6 +55,41 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
         document.getElementById(btn.dataset.tab).classList.add("active");
     });
 });
+
+// Left Panel Tab Switching
+if (elBtnTabView && elBtnTabCreate && elTabContentView && elTabContentCreate) {
+    elBtnTabView.addEventListener("click", () => {
+        elBtnTabView.classList.add("active");
+        elBtnTabView.classList.remove("pulse-notify");
+        elBtnTabCreate.classList.remove("active");
+        elTabContentView.classList.remove("hidden");
+        elTabContentCreate.classList.add("hidden");
+    });
+
+    elBtnTabCreate.addEventListener("click", () => {
+        elBtnTabCreate.classList.add("active");
+        elBtnTabView.classList.remove("active");
+        elTabContentCreate.classList.remove("hidden");
+        elTabContentView.classList.add("hidden");
+    });
+}
+
+// Active vs Historic runs list filter toggles
+if (elBtnFilterActive && elBtnFilterHistoric) {
+    elBtnFilterActive.addEventListener("click", () => {
+        currentFilter = "active";
+        elBtnFilterActive.classList.add("active");
+        elBtnFilterHistoric.classList.remove("active");
+        listHistoricRuns();
+    });
+
+    elBtnFilterHistoric.addEventListener("click", () => {
+        currentFilter = "historic";
+        elBtnFilterHistoric.classList.add("active");
+        elBtnFilterActive.classList.remove("active");
+        listHistoricRuns();
+    });
+}
 
 // Viewport Tabs Switching (Replay vs LLM Vision)
 let activeViewport = "replay";
@@ -131,7 +172,8 @@ function populateDevices(devices) {
         const opt = document.createElement("option");
         opt.value = d.id;
         const icon = d.type === "physical" ? "📱" : "🤖";
-        opt.innerText = `${icon} ${d.name} (${d.resolution})`;
+        const statusText = d.status === "busy" ? " (busy)" : "";
+        opt.innerText = `${icon} ${d.name} (${d.resolution})${statusText}`;
         elDeviceSelect.appendChild(opt);
     });
 
@@ -143,9 +185,9 @@ function populateDevices(devices) {
     updateFleetListUI(devices);
 }
 
-function updateFleetListUI(devices, activeRun = null, runStatus = "idle") {
+function updateFleetListUI(devices) {
     elFleetList.innerHTML = "";
-    if (devices.length === 0) {
+    if (!devices || devices.length === 0) {
         elFleetList.innerHTML = `
             <div class="empty-state">
                 <p>No active devices connected. Open Android Studio AVD Manager or plug in a device.</p>
@@ -155,8 +197,8 @@ function updateFleetListUI(devices, activeRun = null, runStatus = "idle") {
     }
 
     devices.forEach(d => {
-        const statusText = activeRun ? runStatus : "idle";
-        const badgeClass = activeRun ? runStatus.toLowerCase() : "idle";
+        const statusText = d.status || "idle";
+        const badgeClass = statusText === "busy" ? "playing" : "idle";
         
         const isEmulator = d.type === "emulator" || (d.name && d.name.toLowerCase().includes("virtual")) || d.id.includes("mock");
         const deviceIcon = isEmulator ? "🤖" : "📱";
@@ -271,41 +313,8 @@ elLaunchBtn.addEventListener("click", async () => {
 
     if (!deviceId || !selectedApkName) return;
 
-    // Reset session selector to active
-    elRunSelect.value = "active";
-    isHistoricalMode = false;
-    toggleFormInputs(false);
-
-    // Reset replay view and events
-    activeRunEvents = [];
-    elViewportPlaceholder.classList.add("hidden");
-    if (elDualViewports) elDualViewports.classList.add("hidden");
-    if (elViewportTabs) elViewportTabs.classList.add("hidden");
-    elScreenGrab.classList.add("hidden");
-    if (elScreenGrabLlm) elScreenGrabLlm.classList.add("hidden");
-    elCoordinateOverlay.innerHTML = "";
-    elThoughtsBox.innerHTML = "<span class='dimmed'>Play agent starting... Warmup prompt fired.</span>";
-    elCommandBox.innerHTML = "<code>Connecting to device logcat telemetry...</code>";
-    elStepBadge.innerText = "starting";
-    elStepBadge.className = "badge playing";
-    
-    elStateBadge.innerText = "booting";
-    elStateBadge.className = "badge-tag state-tag thinking";
-    
     elLaunchBtn.disabled = true;
-    elLaunchBtn.querySelector(".btn-text").innerText = "Executing gameplay...";
-    
-    elStopBtn.disabled = false;
-    elStopBtn.classList.remove("hidden");
-
-    if (elTimelineScrubber) {
-        elTimelineScrubber.min = 1;
-        elTimelineScrubber.max = 1;
-        elTimelineScrubber.value = 1;
-        elTimelineScrubber.disabled = true;
-    }
-    if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Starting...";
-    if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Waiting for step 1 frame...";
+    elLaunchBtn.querySelector(".btn-text").innerText = "Launching...";
 
     try {
         const res = await fetch("/api/play", {
@@ -322,60 +331,116 @@ elLaunchBtn.addEventListener("click", async () => {
 
         if (res.ok) {
             const data = await res.json();
-            activeRunId = data.run_id;
+            const runId = data.run_id;
+            const chosenDevice = data.device_id;
             
-            // Connect Server-Sent Events (SSE) log stream
-            if (activeEventSource) activeEventSource.close();
-            
-            activeEventSource = new EventSource(`/api/events?run_id=${activeRunId}`);
-            
-            activeEventSource.onmessage = (event) => {
-                const packet = JSON.parse(event.data);
-                handlePlayUpdate(packet, deviceId);
+            if (data.message) {
+                // Show dynamic auto-routing redirection message to user beautifully
+                showToast("Play Fleet Auto-Route", data.message, "ℹ️");
+            } else {
+                showToast("Player Simulation Started", `Successfully launched session run_${runId.substring(0, 8)} on device ${chosenDevice}!`, "🚀");
+            }
+
+            // Create local state entry
+            runsData[runId] = {
+                config: {
+                    run_id: runId,
+                    device_id: chosenDevice,
+                    apk_name: selectedApkName,
+                    package_name: packageName,
+                    instructions: instructions,
+                    max_steps: maxSteps,
+                    timestamp: new Date().toISOString(),
+                    status: "playing"
+                },
+                events: [],
+                logs: "Simulation starting..."
             };
 
-            activeEventSource.onerror = (e) => {
-                console.error("SSE Stream connection error, closing.", e);
-                activeEventSource.close();
-                resetLaunchButtonState();
-            };
+            // Activate the Active runs filter toggle visually and programmatically
+            if (elBtnFilterActive) {
+                currentFilter = "active";
+                elBtnFilterActive.classList.add("active");
+                if (elBtnFilterHistoric) elBtnFilterHistoric.classList.remove("active");
+            }
+
+            // Add notification pulse to View Run tab if user is currently on the Create Run tab
+            if (elBtnTabView && !elBtnTabView.classList.contains("active")) {
+                elBtnTabView.classList.add("pulse-notify");
+            }
+
+            // Set selected run and display in the background
+            selectRun(runId);
+
+            // Connect SSE stream in background
+            connectSSEForRun(runId);
+
+            // Refresh fleet device monitor statuses
+            checkStatusAndDevices();
+
         } else {
             const err = await res.json();
-            elThoughtsBox.innerHTML = `<span class='dimmed' style='color: var(--danger)'>Failed to start run: ${err.detail || "Server error"}</span>`;
-            resetLaunchButtonState();
+            showToast("Launch Failed", err.detail || "Server error starting simulation.", "❌");
         }
     } catch (e) {
         console.error("Launch session error:", e);
-        elThoughtsBox.innerHTML = "<span class='dimmed' style='color: var(--danger)'>Connection failed starting run.</span>";
+        alert("Connection failed starting simulation run.");
+    } finally {
         resetLaunchButtonState();
     }
 });
 
 // Stop Running Fleet Play
 elStopBtn.addEventListener("click", async () => {
-    if (!activeRunId) return;
+    const runId = selectedRunId;
+    if (!runId || runId === "none" || !runsData[runId] || runsData[runId].config.status !== "playing") return;
+
     elStopBtn.disabled = true;
     elStopBtn.querySelector(".btn-text").innerText = "Stopping...";
     try {
-        const res = await fetch(`/api/play/stop?run_id=${activeRunId}`, {
+        const res = await fetch(`/api/play/stop?run_id=${runId}`, {
             method: "POST"
         });
         if (res.ok) {
-            console.log("Stop signal sent successfully.");
+            console.log(`Stop signal sent to run ${runId} successfully.`);
+            
+            // Cleanly close EventSource if it's open
+            if (activeEventSources[runId]) {
+                activeEventSources[runId].close();
+                delete activeEventSources[runId];
+            }
+            
+            // Update local state to "stopped"
+            if (runsData[runId]) {
+                runsData[runId].config.status = "stopped";
+            }
+            
+            // Refresh fleet device statuses to release the device immediately
+            checkStatusAndDevices();
+            
+            // Refresh the runs list from backend (which will fetch the updated on-disk states)
+            await listHistoricRuns();
+            
+            // Refresh the cockpit
+            selectRun(runId);
+        } else {
+            const err = await res.json();
+            alert(`Failed to stop run: ${err.detail || "Server error"}`);
+            elStopBtn.disabled = false;
+            elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
         }
     } catch (e) {
         console.error("Failed to send stop signal:", e);
+        elStopBtn.disabled = false;
+        elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
     }
 });
 
 function resetLaunchButtonState() {
     elLaunchBtn.disabled = false;
     elLaunchBtn.querySelector(".btn-text").innerText = "Launch Simulated Player";
-    elStopBtn.disabled = true;
-    elStopBtn.classList.add("hidden");
-    elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
     toggleFormInputs(true);
-    listHistoricRuns(); // Refresh historic runs dropdown
+    listHistoricRuns(); // Refresh historic runs lists
 }
 
 function toggleFormInputs(enabled) {
@@ -387,44 +452,70 @@ function toggleFormInputs(enabled) {
     elDropzone.style.pointerEvents = enabled ? "auto" : "none";
 }
 
+function connectSSEForRun(runId) {
+    if (activeEventSources[runId]) {
+        activeEventSources[runId].close();
+    }
+
+    const es = new EventSource(`/api/events?run_id=${runId}`);
+    activeEventSources[runId] = es;
+
+    es.onmessage = (event) => {
+        const packet = JSON.parse(event.data);
+        handlePlayUpdate(packet, runId);
+    };
+
+    es.onerror = (e) => {
+        console.error(`SSE Stream error for run ${runId}, closing connection.`, e);
+        es.close();
+        delete activeEventSources[runId];
+        
+        if (runsData[runId] && runsData[runId].config.status === "playing") {
+            runsData[runId].config.status = "failed";
+            listHistoricRuns();
+            if (selectedRunId === runId) {
+                renderTimeline(runsData[runId].events, "failed");
+            }
+        }
+    };
+}
+
 // Process Real-time Gameplay telemetry packet from SSE
-function handlePlayUpdate(packet, deviceId) {
+function handlePlayUpdate(packet, runId) {
     const status = packet.status;
     
-    // Update Badge
-    elStepBadge.innerText = status;
-    elStepBadge.className = `badge ${status}`;
-    
-    if (packet.state) {
-        elStateBadge.innerText = packet.state;
-        elStateBadge.className = `badge-tag state-tag ${packet.state}`;
+    if (!runsData[runId]) {
+        runsData[runId] = {
+            config: { run_id: runId, status: status },
+            events: [],
+            logs: ""
+        };
     }
-    
-    // Query cached device properties to avoid hardcoding labels
-    const device = devicesCache.find(d => d.id === deviceId) || {
-        id: deviceId,
-        name: deviceId.includes("mock") ? "Simulated Pixel 6 Pro" : `Android Device (${deviceId})`,
-        resolution: "Active Session",
-        type: deviceId.includes("mock") || deviceId.includes("emulator") ? "emulator" : "physical"
-    };
-    
-    // Update Active fleet UI lists
-    updateFleetListUI([device], packet.run_id, status);
+
+    runsData[runId].config.status = status;
 
     if (packet.message) {
-        elThoughtsBox.innerHTML = `<span>${packet.message}</span>`;
+        runsData[runId].logs = (runsData[runId].logs || "") + "\n" + packet.message;
+        if (selectedRunId === runId) {
+            elThoughtsBox.innerHTML = `<span>${packet.message}</span>`;
+        }
     }
 
-    // Capture logs updates dynamically streamed from backend
     if (packet.logs_update) {
-        elLogcatConsole.innerText = packet.logs_update;
-        return;
+        runsData[runId].logs = packet.logs_update;
+        if (selectedRunId === runId) {
+            elLogcatConsole.innerText = packet.logs_update;
+        }
+    }
+
+    if (packet.logs) {
+        runsData[runId].logs = packet.logs;
     }
 
     // Step gameplay loop packets
     if (status === "playing" && packet.step) {
-        // Find if this step is already recorded, or insert it
-        let existingEvent = activeRunEvents.find(e => e.step_index === packet.step);
+        let events = runsData[runId].events;
+        let existingEvent = events.find(e => e.step_index === packet.step);
         if (!existingEvent) {
             existingEvent = {
                 step_index: packet.step,
@@ -435,11 +526,11 @@ function handlePlayUpdate(packet, deviceId) {
                 screenshot_llm: packet.screenshot_llm || "",
                 screenshot_llm_path: packet.screenshot_llm_path || "",
                 agent_reasoning: packet.reasoning || "",
-                actions_taken: packet.actions_taken || (packet.action && packet.action.includes("Tapped") ? [{type: "tap", params: {x: 0, y: 0}}] : []),
+                actions_taken: packet.actions_taken || [],
                 action_summary: packet.action || "",
                 logs: ""
             };
-            activeRunEvents.push(existingEvent);
+            events.push(existingEvent);
         } else {
             if (packet.start_time) existingEvent.start_time = packet.start_time;
             if (packet.duration !== undefined) existingEvent.duration = packet.duration;
@@ -452,51 +543,49 @@ function handlePlayUpdate(packet, deviceId) {
             if (packet.actions_taken) existingEvent.actions_taken = packet.actions_taken;
         }
 
-        // Render current visual timeline
-        renderTimeline(activeRunEvents, "playing");
-        
-        // Select the active step node
-        const activeNodeIndex = activeRunEvents.length - 1;
-        selectTimelineStep(activeNodeIndex);
-
-        // Highlight selected node
-        setTimeout(() => {
-            const nodes = document.querySelectorAll(".timeline-node");
-            if (nodes[activeNodeIndex]) {
-                nodes.forEach(n => n.classList.remove("selected"));
-                nodes[activeNodeIndex].classList.add("selected");
-            }
-        }, 100);
-
-        // Reload telemetry database log table
-        loadTelemetryEvents();
+        // If currently viewed, update the cockpit
+        if (selectedRunId === runId) {
+            renderTimeline(events, "playing");
+            selectTimelineStep(events.length - 1);
+        }
     }
 
-    if (status === "completed") {
-        elThoughtsBox.innerHTML = `<span style="color: var(--success); font-weight: 600;">✅ Play session completed successfully! APK stopped. Logcat compiled.</span>`;
-        elCommandBox.innerHTML = "<code>adb shell am force-stop</code>";
-        
+    if (status === "completed" || status === "failed") {
         if (packet.logs) {
-            elLogcatConsole.innerText = packet.logs;
+            runsData[runId].logs = packet.logs;
         }
         
-        elStateBadge.innerText = "completed";
-        elStateBadge.className = "badge-tag state-tag completed";
-        
-        if (activeEventSource) activeEventSource.close();
-        resetLaunchButtonState();
-        loadTelemetryEvents();
-    }
+        if (activeEventSources[runId]) {
+            activeEventSources[runId].close();
+            delete activeEventSources[runId];
+        }
 
-    if (status === "failed") {
-        elThoughtsBox.innerHTML = `<span style="color: var(--danger); font-weight: 600;">❌ Session failed: ${packet.message}</span>`;
-        
-        elStateBadge.innerText = "stopped";
-        elStateBadge.className = "badge-tag state-tag failed";
-        
-        if (activeEventSource) activeEventSource.close();
-        resetLaunchButtonState();
-        loadTelemetryEvents();
+        listHistoricRuns(); // Refresh runs cards list
+
+        if (selectedRunId === runId) {
+            elStepBadge.innerText = status;
+            elStepBadge.className = `badge ${status}`;
+            
+            if (status === "completed") {
+                elThoughtsBox.innerHTML = `<span style="color: var(--success); font-weight: 600;">✅ Play session completed successfully! APK stopped. Logcat compiled.</span>`;
+                elCommandBox.innerHTML = "<code>adb shell am force-stop</code>";
+                elStateBadge.innerText = "completed";
+                elStateBadge.className = "badge-tag state-tag completed";
+            } else {
+                elThoughtsBox.innerHTML = `<span style="color: var(--danger); font-weight: 600;">❌ Session failed / stopped by user request.</span>`;
+                elStateBadge.innerText = "stopped";
+                elStateBadge.className = "badge-tag state-tag failed";
+            }
+
+            if (runsData[runId].logs) {
+                elLogcatConsole.innerText = runsData[runId].logs;
+            }
+
+            renderTimeline(runsData[runId].events, status);
+        }
+
+        // Refresh devices list
+        checkStatusAndDevices();
     }
 }
 
@@ -544,8 +633,11 @@ function renderTimeline(events, currentStatus = "completed") {
     }
 }
 
+// Selects and displays detail viewport for specific step of timeline
 function selectTimelineStep(index) {
-    const events = isHistoricalMode ? historicRunEvents : activeRunEvents;
+    const run = runsData[selectedRunId];
+    if (!run) return;
+    const events = run.events;
     if (!events || index >= events.length || index < 0) return;
     
     selectedStepIndex = index;
@@ -759,90 +851,164 @@ async function listHistoricRuns() {
         const res = await fetch("/api/runs");
         if (res.ok) {
             const data = await res.json();
-            populateHistoricRunsSelector(data.runs);
+            
+            // Sync local runsData state with backend
+            data.runs.forEach(r => {
+                if (!runsData[r.run_id]) {
+                    runsData[r.run_id] = {
+                        config: r,
+                        events: [],
+                        logs: ""
+                    };
+                } else {
+                    runsData[r.run_id].config = r;
+                }
+            });
+            
+            renderRunsListCards(data.runs);
         }
     } catch (e) {
         console.error("Failed to load historic runs list:", e);
     }
 }
 
-function populateHistoricRunsSelector(runs) {
-    // Keep standard Active option
-    elRunSelect.innerHTML = `
-        <option value="active">🟢 Active Play Session</option>
-    `;
+function renderRunsListCards(runs) {
+    if (!elRunsList) return;
+    elRunsList.innerHTML = "";
     
-    if (!runs || runs.length === 0) return;
-    
-    runs.forEach(r => {
-        const opt = document.createElement("option");
-        opt.value = r.run_id;
+    // Filter runs based on Active vs Historic toggle filter
+    const filteredRuns = runs.filter(r => {
+        if (currentFilter === "active") {
+            return r.status === "playing";
+        } else {
+            return r.status !== "playing";
+        }
+    });
+
+    if (filteredRuns.length === 0) {
+        const emptyMsg = currentFilter === "active" 
+            ? "No active simulated runs currently in progress." 
+            : "No historic simulation runs loaded.";
+        elRunsList.innerHTML = `
+            <div class="empty-state">
+                <p>${emptyMsg}</p>
+            </div>
+        `;
+        return;
+    }
+
+    filteredRuns.forEach(r => {
+        const isSelected = selectedRunId === r.run_id;
+        const statusClass = r.status || "idle";
         
-        const date = r.timestamp ? r.timestamp.split("T")[0] : "";
+        const date = r.timestamp ? r.timestamp.split("T")[0] : "N/A";
         const time = r.timestamp ? r.timestamp.split("T")[1].substring(0, 5) : "";
-        const statusIcon = r.status === "completed" ? "✅" : (r.status === "stopped" ? "🛑" : "❌");
         
-        opt.innerText = `${statusIcon} ${r.run_id} | ${r.apk_name || "Game"} | ${date} ${time} (${r.status})`;
-        elRunSelect.appendChild(opt);
+        const card = document.createElement("div");
+        card.className = `run-card-item ${statusClass} ${isSelected ? 'selected' : ''}`;
+        card.dataset.runId = r.run_id;
+        
+        card.innerHTML = `
+            <div class="run-card-header">
+                <span class="run-card-id">🆔 ${r.run_id}</span>
+                <span class="device-badge ${statusClass}">${r.status}</span>
+            </div>
+            <div class="run-card-body">
+                <span class="run-card-apk" title="${r.apk_name}">📦 ${r.apk_name || "Unknown APK"}</span>
+                <div class="run-card-meta">
+                    <span>📱 Dev: <code>${r.device_id || "N/A"}</code></span>
+                    <span>🏁 Steps: ${r.max_steps || 50}</span>
+                </div>
+            </div>
+            <div class="run-card-footer">
+                <span>📅 Started: ${date} ${time}</span>
+            </div>
+        `;
+        
+        card.addEventListener("click", () => {
+            selectRun(r.run_id);
+        });
+        
+        elRunsList.appendChild(card);
     });
 }
 
-// Session Selector Listener
-elRunSelect.addEventListener("change", async (e) => {
-    const val = e.target.value;
-    if (val === "active") {
-        isHistoricalMode = false;
-        toggleFormInputs(true);
+async function selectRun(runId) {
+    if (!runId || runId === "none") {
         clearTimelineDetails();
-        
-        // Re-render active run if exists
-        renderTimeline(activeRunEvents, activeRunId ? "playing" : "completed");
-        if (activeRunEvents.length > 0) {
-            selectTimelineStep(activeRunEvents.length - 1);
-        }
-    } else {
-        isHistoricalMode = true;
-        toggleFormInputs(false);
-        await loadHistoricRunDetails(val);
+        return;
     }
-});
 
-async function loadHistoricRunDetails(runId) {
-    if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Loading...";
-    if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Loading historic run details...";
-    try {
-        const res = await fetch(`/api/runs/${runId}`);
-        if (res.ok) {
-            const data = await res.json();
-            historicRunEvents = data.telemetry || [];
-            
-            // Render the full static timeline
-            renderTimeline(historicRunEvents, data.config.status);
-            
-            // Load the first step by default
-            if (historicRunEvents.length > 0) {
-                selectTimelineStep(0);
-            } else {
-                clearTimelineDetails();
-            }
-            
-            // Set status badges
-            elStepBadge.innerText = data.config.status;
-            elStepBadge.className = `badge ${data.config.status}`;
-            
-            elStateBadge.innerText = "historic";
-            elStateBadge.className = "badge-tag state-tag idle";
-            
-            // Load final full logcat
-            elLogcatConsole.innerText = data.logs || "No logs were captured for this past run.";
+    selectedRunId = runId;
+    selectedStepIndex = -1;
+    
+    // Highlight active card selection
+    document.querySelectorAll(".run-card-item").forEach(card => {
+        if (card.dataset.runId === runId) {
+            card.classList.add("selected");
         } else {
-            alert("Failed to fetch historic run metadata.");
+            card.classList.remove("selected");
         }
-    } catch (e) {
-        console.error("Failed to load historic run details:", e);
-        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Error loading past run.";
+    });
+
+    const run = runsData[runId];
+    if (!run) {
+        clearTimelineDetails();
+        return;
+    }
+
+    const isPlaying = run.config.status === "playing";
+
+    // If historic/completed run and events are not loaded yet
+    if (run.events.length === 0 && !isPlaying) {
+        if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Loading...";
+        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Loading historic run details...";
+        
+        try {
+            const res = await fetch(`/api/runs/${runId}`);
+            if (res.ok) {
+                const data = await res.json();
+                run.events = data.telemetry || [];
+                run.logs = data.logs || "No logs were captured for this past run.";
+                runsData[runId] = run;
+            }
+        } catch (e) {
+            console.error(`Failed to load details for historic run ${runId}`, e);
+        }
+    }
+
+    // Render timeline and status
+    elStepBadge.innerText = run.config.status;
+    elStepBadge.className = `badge ${run.config.status}`;
+    
+    elStateBadge.innerText = isPlaying ? "playing" : "historic";
+    elStateBadge.className = `badge-tag state-tag ${isPlaying ? "thinking" : "idle"}`;
+
+    elLogcatConsole.innerText = run.logs || "Waiting for game session logcat dump...";
+
+    // Configure stop button visibility
+    if (isPlaying) {
+        elStopBtn.disabled = false;
+        elStopBtn.classList.remove("hidden");
+        elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
+    } else {
+        elStopBtn.disabled = true;
+        elStopBtn.classList.add("hidden");
+    }
+
+    renderTimeline(run.events, run.config.status);
+    
+    if (run.events.length > 0) {
+        selectTimelineStep(run.events.length - 1);
+    } else {
+        clearTimelineDetails();
+        if (isPlaying) {
+            elTimelineStatusDesc.innerText = "Waiting for step 1 frame...";
+        }
     }
 }
+
+
 
 function clearTimelineDetails() {
     elViewportPlaceholder.classList.remove("hidden");
@@ -962,11 +1128,52 @@ if (elBtnPrevStep) {
 
 if (elBtnNextStep) {
     elBtnNextStep.addEventListener("click", () => {
-        const events = isHistoricalMode ? historicRunEvents : activeRunEvents;
+        const run = runsData[selectedRunId];
+        const events = run ? run.events : [];
         if (events && selectedStepIndex < events.length - 1) {
             selectTimelineStep(selectedStepIndex + 1);
         }
     });
+}
+
+// Premium Non-Blocking Toast Notifications Utility
+function showToast(title, message, icon = "🚀") {
+    const container = document.getElementById("toast-container");
+    if (!container) return;
+
+    const toast = document.createElement("div");
+    toast.className = "toast-item";
+    toast.innerHTML = `
+        <div class="toast-icon">${icon}</div>
+        <div class="toast-content">
+            <div class="toast-title">${title}</div>
+            <div class="toast-message">${message}</div>
+        </div>
+        <button type="button" class="toast-close">&times;</button>
+    `;
+
+    container.appendChild(toast);
+
+    // Trigger reflow for CSS animation entry
+    toast.offsetHeight;
+    toast.classList.add("show");
+
+    // Close button handler
+    const closeBtn = toast.querySelector(".toast-close");
+    closeBtn.addEventListener("click", () => {
+        toast.classList.remove("show");
+        toast.classList.add("hide");
+        setTimeout(() => toast.remove(), 400);
+    });
+
+    // Auto dismiss after 6 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.classList.remove("show");
+            toast.classList.add("hide");
+            setTimeout(() => toast.remove(), 400);
+        }
+    }, 6000);
 }
 
 // Init on load

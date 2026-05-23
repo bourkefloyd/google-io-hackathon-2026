@@ -33,24 +33,33 @@
         <main class="dashboard-grid">
             <!-- Left Column: Configurations and Fleet Management -->
             <section class="left-panel">
-                <!-- Session Selection Card -->
+                <!-- Step 1: Session Control Tabbed Card -->
                 <div class="dashboard-card glass-card">
-                    <div class="card-header">
-                        <h2>📂 Select Session</h2>
+                    <div class="card-header session-control-header">
+                        <h2>Step 1: Session Control</h2>
+                        <div class="session-tabs">
+                            <button type="button" class="session-tab-btn active" id="btn-tab-view" title="View active or historical play runs">A. View Run</button>
+                            <button type="button" class="session-tab-btn" id="btn-tab-create" title="Launch a new player simulation">B. Create Run</button>
+                        </div>
                     </div>
-                    <div class="card-content select-session-content">
-                        <select id="run-selector" class="glass-select full-width">
-                            <option value="active">🟢 Active Play Session</option>
-                        </select>
+                    
+                    <!-- Tab A: View Run -->
+                    <div class="card-content" id="tab-content-view">
+                        <!-- Sub-tab filter buttons for Active vs Historic Runs -->
+                        <div class="runs-filter-tabs">
+                            <button type="button" class="runs-filter-btn active" id="btn-filter-active" title="Filter to active simulation runs in progress">🟢 Active Runs</button>
+                            <button type="button" class="runs-filter-btn" id="btn-filter-historic" title="Filter to completed, failed, or stopped simulation runs">📋 Historic Runs</button>
+                        </div>
+                        
+                        <div class="runs-list-container" id="runs-list">
+                            <div class="empty-state">
+                                <p>No gameplay runs loaded.</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-
-                <!-- Config Card -->
-                <div class="dashboard-card glass-card">
-                    <div class="card-header">
-                        <h2>1. Configure Play Session</h2>
-                    </div>
-                    <div class="card-content">
+                    
+                    <!-- Tab B: Create Run -->
+                    <div class="card-content hidden" id="tab-content-create">
                         <!-- APK Uploader -->
                         <div class="form-group">
                             <label for="apk-uploader">Upload APK Build</label>
@@ -84,9 +93,9 @@
                         <div class="form-group">
                             <div class="slider-labels">
                                 <label for="max-steps">Max Step Budget</label>
-                                <span id="steps-val">15 steps</span>
+                                <span id="steps-val">50 steps</span>
                             </div>
-                            <input type="range" id="max-steps" min="5" max="40" value="15">
+                            <input type="range" id="max-steps" min="5" max="500" value="50">
                         </div>
 
                         <!-- Instructions Prompt -->
@@ -99,15 +108,11 @@
 4. If an ad banner pops up, tap back to exit."></textarea>
                         </div>
 
-                        <!-- Launch and Stop Actions -->
+                        <!-- Launch Actions -->
                         <div class="btn-actions-row">
-                            <button type="button" class="btn-primary pulse" id="btn-launch-fleet" disabled>
+                            <button type="button" class="btn-primary pulse" id="btn-launch-fleet" disabled style="width: 100%;">
                                 <span class="btn-icon">⚡</span>
                                 <span class="btn-text">Launch Simulated Player</span>
-                            </button>
-                            <button type="button" class="btn-danger hidden" id="btn-stop-run" disabled>
-                                <span class="btn-icon">🛑</span>
-                                <span class="btn-text">Stop Run</span>
                             </button>
                         </div>
                     </div>
@@ -137,6 +142,10 @@
                             <div class="badges-row">
                                 <span class="badge" id="step-badge">Idle</span>
                                 <span class="badge-tag state-tag idle" id="state-badge">idle</span>
+                                <button type="button" class="btn-danger-sm hidden" id="btn-stop-run" disabled>
+                                    <span class="btn-icon">🛑</span>
+                                    <span class="btn-text">Stop Run</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -231,6 +240,9 @@
             </section>
         </main>
     </div>
+
+    <!-- Toast container for non-blocking notifications -->
+    <div class="toast-container" id="toast-container"></div>
 
     <!-- Scripts -->
     <script src="app.js"></script>

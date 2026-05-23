@@ -13,7 +13,7 @@ if os.path.exists(env_path):
                 key, val = line.split("=", 1)
                 os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -53,22 +53,27 @@ active_queues: Dict[str, asyncio.Queue] = {}
 # Set of run IDs that have been requested to stop
 stopped_runs = set()
 
+# Track active runs to their targeted device IDs
+active_runs_devices: Dict[str, str] = {}
+
 
 class PlayRequest(BaseModel):
     device_id: str
     apk_name: str
     package_name: str
     instructions: str
-    max_steps: Optional[int] = 15
+    max_steps: Optional[int] = 50
 
 
 @app.get("/api/emulators")
 def get_emulators():
-    """Lists currently connected Android emulators/devices."""
+    """Lists currently connected Android emulators/devices with busy/idle status."""
     devices = fleet_manager.list_devices()
     result = []
+    busy_devices = set(active_runs_devices.values())
     for d in devices:
         details = fleet_manager.get_device_details(d)
+        details["status"] = "busy" if d in busy_devices else "idle"
         result.append(details)
     return {"devices": result}
 
@@ -101,6 +106,34 @@ async def upload_apk(apk: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"APK write error: {str(e)}")
 
 
+async def run_play_task_wrapper(
+    run_id: str,
+    device_id: str,
+    apk_path: str,
+    package_name: str,
+    instructions: str,
+    max_steps: int,
+    push_log_event: Callable
+):
+    active_runs_devices[run_id] = device_id
+    try:
+        await run_agent_play_loop(
+            device_id=device_id,
+            apk_path=apk_path,
+            package_name=package_name,
+            instructions=instructions,
+            run_id=run_id,
+            fleet_manager=fleet_manager,
+            telemetry_collector=telemetry_collector,
+            logs_callback=push_log_event,
+            max_steps=max_steps,
+            is_stopped_callback=lambda: run_id in stopped_runs,
+        )
+    finally:
+        if run_id in active_runs_devices:
+            del active_runs_devices[run_id]
+
+
 @app.post("/api/play")
 def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
     """Launches an autonomous play run on a specific device."""
@@ -109,6 +142,28 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
         raise HTTPException(
             status_code=404, detail="APK build file not found on server."
         )
+
+    target_device = req.device_id
+    redirect_msg = ""
+
+    # Check if target device is currently in progress
+    busy_devices = set(active_runs_devices.values())
+    if target_device in busy_devices:
+        logger.info(f"Requested device {target_device} is busy. Finding idle or creating new emulator...")
+        
+        # 1. Search for another connected device/emulator that is idle
+        all_devices = fleet_manager.list_devices()
+        idle_devices = [d for d in all_devices if d not in busy_devices]
+        
+        if idle_devices:
+            target_device = idle_devices[0]
+            redirect_msg = f"Device {req.device_id} was busy. Auto-routed to idle device {target_device}."
+            logger.info(redirect_msg)
+        else:
+            # 2. No idle devices, dynamically create/boot a new mock emulator!
+            target_device = fleet_manager.create_mock_device()
+            redirect_msg = f"Device {req.device_id} was busy. Dynamically booted and targeted new mock emulator {target_device}."
+            logger.info(redirect_msg)
 
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 
@@ -121,35 +176,86 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
             loop = asyncio.get_event_loop()
             loop.call_soon_threadsafe(active_queues[run_id].put_nowait, data)
 
-    # Launch loop in FastAPI background tasks
+    # Launch loop in FastAPI background tasks via our wrapper to manage active state
     background_tasks.add_task(
-        run_agent_play_loop,
-        device_id=req.device_id,
+        run_play_task_wrapper,
+        run_id=run_id,
+        device_id=target_device,
         apk_path=apk_path,
         package_name=req.package_name,
         instructions=req.instructions,
-        run_id=run_id,
-        fleet_manager=fleet_manager,
-        telemetry_collector=telemetry_collector,
-        logs_callback=push_log_event,
         max_steps=req.max_steps,
-        is_stopped_callback=lambda: run_id in stopped_runs,
+        push_log_event=push_log_event,
     )
 
-    return {"status": "started", "run_id": run_id}
+    return {
+        "status": "started", 
+        "run_id": run_id, 
+        "device_id": target_device,
+        "message": redirect_msg
+    }
 
 
 @app.post("/api/play/stop")
 def stop_play_run(run_id: str):
-    """Stops an active autonomous play run."""
-    if run_id not in active_queues:
-        raise HTTPException(
-            status_code=404, detail="Run session not active or completed."
-        )
+    """Stops an active autonomous play run, with force-stop fallback for dead on-disk runs."""
+    # Check if active in memory
+    if run_id in active_queues:
+        stopped_runs.add(run_id)
+        logger.info(f"Stop signal sent to active run session: {run_id}")
+        return {"status": "success", "message": "Stop signal sent to active run session."}
 
-    stopped_runs.add(run_id)
-    logger.info(f"Stop signal sent to run session: {run_id}")
-    return {"status": "success", "message": "Stop signal sent to run session."}
+    # If not active in memory, it might be an orphaned/dead run on disk.
+    # Let's force-stop it by updating its on-disk configuration!
+    import json
+    run_dir = os.path.join("runs", run_id)
+    config_path = os.path.join(run_dir, "run_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config_data = json.load(f)
+            
+            if config_data.get("status") == "playing":
+                config_data["status"] = "stopped"
+                with open(config_path, "w") as f:
+                    json.dump(config_data, f, indent=2)
+                
+                # Write final terminated event to telemetry summary if exists
+                telemetry_path = os.path.join(run_dir, "telemetry_summary.json")
+                telemetry_data = []
+                if os.path.exists(telemetry_path):
+                    try:
+                        with open(telemetry_path, "r") as f:
+                            telemetry_data = json.load(f)
+                    except Exception:
+                        pass
+                
+                from datetime import datetime
+                final_event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "emulator_id": config_data.get("device_id", "unknown"),
+                    "run_id": run_id,
+                    "package_name": config_data.get("package_name", "unknown"),
+                    "step_index": 999,
+                    "screenshot": "",
+                    "agent_reasoning": "Simulation run force-stopped / cancelled by user.",
+                    "actions_taken": [],
+                    "action_summary": "Session terminated.",
+                    "logs": "Force-stopped by user request.",
+                }
+                telemetry_data.append(final_event)
+                with open(telemetry_path, "w") as f:
+                    json.dump(telemetry_data, f, indent=2)
+
+                logger.info(f"Force-stopped orphaned/dead run session on disk: {run_id}")
+                return {"status": "success", "message": "Force-stopped dead/orphaned run on disk."}
+        except Exception as e:
+            logger.error(f"Failed to force-stop orphaned run {run_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to force-stop: {str(e)}")
+
+    raise HTTPException(
+        status_code=404, detail="Run session not active or found on disk."
+    )
 
 
 @app.get("/api/runs")
