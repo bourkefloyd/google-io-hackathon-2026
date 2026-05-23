@@ -27,42 +27,69 @@ Built using the **Google Antigravity SDK**, **FastAPI**, and premium **Vanilla C
 
 ## Architecture Diagram
 
+```mermaid
+flowchart TD
+    %% Node Definitions
+    UI["Web Dashboard UI<br>(Real-time SSE & telemetry view)"]
+    FastAPI["FastAPI Local Server"]
+    AGY["Google Antigravity Agent<br>(Gemini Multimodal API)"]
+    Fleet["ADB Fleet Manager<br>(Local Emulators & Devices)"]
+    LocalFile[("Local JSONL Timeseries<br>(gameplay_events.jsonl)")]
+    CloudRun["Cloud Run Ingestion API"]
+    PubSub["GCP Pub/Sub Topic"]
+    BigQuery[("GCP BigQuery Subscribers")]
+
+    %% Subgraphs for Structural Grouping
+    subgraph Client["Frontend / Client"]
+        UI
+    end
+
+    subgraph LocalBackend["Local Orchestrator Backend"]
+        FastAPI
+    end
+
+    subgraph Execution["Execution & Devices"]
+        AGY
+        Fleet
+    end
+
+    subgraph Ingestion["Telemetry Pipelines"]
+        subgraph LocalMode["Local Fallback Mode"]
+            LocalFile
+        end
+        subgraph GCPMode["GCP Production Mode"]
+            CloudRun
+            PubSub
+            BigQuery
+        end
+    end
+
+    %% Relations & Data Flows
+    UI <-->|HTTP / SSE Stream| FastAPI
+    FastAPI <-->|Orchestrates| Fleet
+    FastAPI <-->|Runs / Manages| AGY
+    AGY <-->|Visual Play Loop (Screenshots & ADB Input)| Fleet
+    Fleet -->|Capture Logs & Event Data| FastAPI
+    
+    FastAPI -->|Write events| LocalFile
+    FastAPI -->|Stream events| CloudRun
+    CloudRun -->|Publish| PubSub
+    PubSub -->|Subscribe / Stream| BigQuery
+
+    %% Styling & Colors (Premium theme)
+    classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1;
+    classDef server fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#15803d;
+    classDef device fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#b45309;
+    classDef local fill:#f3f4f6,stroke:#4b5563,stroke-width:2px,color:#1f2937;
+    classDef gcp fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#6d28d9;
+
+    class UI client;
+    class FastAPI server;
+    class AGY,Fleet device;
+    class LocalFile local;
+    class CloudRun,PubSub,BigQuery gcp;
 ```
-                       +-----------------------+
-                       |  Web Dashboard UI     |
-                       |  (Real-time SSE logs) |
-                       +-----------+-----------+
-                                   ^
-                                   | HTTP / SSE Stream
-                                   v
-                       +-----------+-----------+
-                       | FastAPI Local Server  |
-                       +-----------+-----------+
-                                   ^
-                                   | Orchestrates (subprocess)
-                                   v
-+-------------------------+  Runs  +-----------+-----------+  Captures  +-------------------------+
-| Google Antigravity Agent| +----->| ADB Fleet Manager     | +--------->| Gameplay Timeseries     |
-| (Gemini Multimodal)     |        | (Local Emulators)     |            | (Screenshots, Logs)     |
-+-------------------------+        +-----------------------+            +------------+------------+
-                                                                                     |
-                                                   +---------------------------------+---------------------------------+
-                                                   |                                                                   |
-                                                   v Local Fallback Mode                                               v Production Mode
-                                     +-------------+-------------+                                       +-------------+-------------+
-                                     | Local JSONL Timeseries    |                                       | Cloud Run Ingestion API   |
-                                     | (gameplay_events.jsonl)   |                                       +-------------+-------------+
-                                     +---------------------------+                                                     |
-                                                                                                                       v
-                                                                                                         +-------------+-------------+
-                                                                                                         | GCP Pub/Sub Topic         |
-                                                                                                         +-------------+-------------+
-                                                                                                                       |
-                                                                                                                       v
-                                                                                                         +-------------+-------------+
-                                                                                                         | GCP BigQuery Subscribers  |
-                                                                                                         +---------------------------+
-```
+
 
 ---
 
