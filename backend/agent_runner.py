@@ -59,6 +59,9 @@ class DeviceAgentTools:
         self.session_completed = False
         self.completion_reason = ""
 
+    def __deepcopy__(self, memo):
+        return self
+
     def tap(self, x: float, y: float) -> str:
         """Taps on the screen using normalized relative coordinates from 0.0 to 1.0.
 

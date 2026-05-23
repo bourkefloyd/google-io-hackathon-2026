@@ -694,13 +694,26 @@ function selectTimelineStep(index) {
         const imgFull = new Image();
         imgFull.src = elScreenGrab.src;
         imgFull.onload = () => {
-            const fullH = imgFull.naturalHeight || 1200;
+            const fullW = imgFull.naturalWidth || 1080;
+            const fullH = imgFull.naturalHeight || 1920;
+            
+            // Auto-detect screenshot aspect ratios and toggle cinematic landscape style class
+            const isLandscape = fullW > fullH;
+            if (isLandscape) {
+                elDualViewports.classList.add("landscape-mode");
+            } else {
+                elDualViewports.classList.remove("landscape-mode");
+            }
+            
             const imgLlm = new Image();
             imgLlm.src = elScreenGrabLlm.src;
             imgLlm.onload = () => {
                 const llmH = imgLlm.naturalHeight || 384;
                 const ratio = llmH / fullH;
-                const calculatedHeight = Math.round(420 * ratio);
+                
+                // Dynamically scale LLM screenshot height based on actual rendered parent height
+                const displayedH = elScreenGrab.clientHeight || 420;
+                const calculatedHeight = Math.round(displayedH * ratio);
                 elScreenGrabLlm.style.height = `${calculatedHeight}px`;
             };
         };
@@ -1193,6 +1206,280 @@ function showToast(title, message, icon = "🚀") {
         }
     }, 6000);
 }
+
+// ==========================================
+// 5. AVD & Device Manager JS Orchestration
+// ==========================================
+
+const elDrawer = document.getElementById("device-manager-drawer");
+const elOpenDrawerBtn = document.getElementById("btn-open-device-manager");
+const elCloseDrawerBtn = document.getElementById("btn-close-device-manager");
+const elDrawerOverlay = document.getElementById("drawer-overlay");
+const elToggleSimulated = document.getElementById("toggle-simulated-devices");
+const elSdkBanner = document.getElementById("sdk-status-banner");
+const elDrawerAvdsList = document.getElementById("drawer-avds-list");
+const elCreateAvdForm = document.getElementById("create-avd-form");
+const elRefreshDrawerAvds = document.getElementById("btn-refresh-drawer-emulators");
+
+// Toggle Drawer Open/Close Transitions
+if (elOpenDrawerBtn && elCloseDrawerBtn && elDrawer && elDrawerOverlay) {
+    elOpenDrawerBtn.addEventListener("click", () => {
+        elDrawer.classList.add("open");
+        loadDrawerFleetStatus();
+        loadDrawerEmulators();
+    });
+
+    const closeDrawer = () => elDrawer.classList.remove("open");
+    elCloseDrawerBtn.addEventListener("click", closeDrawer);
+    elDrawerOverlay.addEventListener("click", closeDrawer);
+}
+
+// Toggle Simulated Fallback Setting API Call
+if (elToggleSimulated) {
+    elToggleSimulated.addEventListener("change", async (e) => {
+        const enable = e.target.checked;
+        try {
+            const res = await fetch("/api/fleet/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enable })
+            });
+            if (res.ok) {
+                showToast("Settings Updated", `Simulated devices fallback has been ${enable ? "enabled" : "disabled"}.`, "⚙️");
+                loadDrawerEmulators();
+                checkStatusAndDevices(); // Refresh main selector list
+            }
+        } catch (err) {
+            console.error("Failed to toggle simulated settings:", err);
+        }
+    });
+}
+
+// Load SDK status and update banner dynamically
+async function loadDrawerFleetStatus() {
+    if (!elSdkBanner) return;
+    try {
+        const res = await fetch("/api/fleet/status");
+        if (res.ok) {
+            const data = await res.json();
+            
+            // Set Toggle Switch position to match backend state
+            if (elToggleSimulated) {
+                elToggleSimulated.checked = data.simulated_enabled;
+            }
+
+            if (data.sdk_available) {
+                elSdkBanner.className = "sdk-status-banner success";
+                elSdkBanner.innerHTML = `
+                    <span class="banner-icon">✅</span>
+                    <div class="banner-text">
+                        <h5>Android SDK Engine Connected</h5>
+                        <p>Native emulator and avdmanager binaries located successfully. Ready to deploy real AVDs.</p>
+                    </div>
+                `;
+                // Enable Native AVD selection in creation form
+                const nativeOpt = document.querySelector("#new-avd-mode option[value='native']");
+                if (nativeOpt) {
+                    nativeOpt.disabled = false;
+                    nativeOpt.innerText = "Native AVD (Requires SDK)";
+                }
+            } else {
+                elSdkBanner.className = "sdk-status-banner warning";
+                elSdkBanner.innerHTML = `
+                    <span class="banner-icon">⚠️</span>
+                    <div class="banner-text">
+                        <h5>Android SDK Tooling Missing</h5>
+                        <p>Native emulator/avdmanager binaries not detected in standard system PATH. Operating in simulated fallback mode.</p>
+                    </div>
+                `;
+                // Disable Native AVD selection, fallback exclusively to Simulated
+                const nativeOpt = document.querySelector("#new-avd-mode option[value='native']");
+                const modeSelect = document.getElementById("new-avd-mode");
+                if (nativeOpt) {
+                    nativeOpt.disabled = true;
+                    nativeOpt.innerText = "Native AVD (Android SDK not installed)";
+                }
+                if (modeSelect) {
+                    modeSelect.value = "simulated";
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load SDK status details:", e);
+    }
+}
+
+// Load emulators and paint card nodes inside side drawer
+async function loadDrawerEmulators() {
+    if (!elDrawerAvdsList) return;
+    try {
+        const res = await fetch("/api/fleet/emulators");
+        if (!res.ok) throw new Error("API call error");
+        
+        const data = await res.json();
+        const emulators = data.emulators || [];
+        
+        elDrawerAvdsList.innerHTML = "";
+        
+        if (emulators.length === 0) {
+            elDrawerAvdsList.innerHTML = `
+                <div class="empty-state">
+                    <p>No configured emulators found. Create one below to expand the fleet.</p>
+                </div>
+            `;
+            return;
+        }
+
+        emulators.forEach(dev => {
+            const card = document.createElement("div");
+            card.className = "avd-card";
+            
+            const isOnline = dev.state === "online";
+            const isBooting = dev.state === "booting";
+            
+            const typeLabel = dev.type === "simulated" ? "Simulated Fallback" : "Native AVD Config";
+            let actionBtnHtml = "";
+            
+            if (dev.state === "offline") {
+                actionBtnHtml = `<button type="button" class="btn-boot-emulator" data-id="${dev.id}">⚡ Boot</button>`;
+            } else if (isOnline) {
+                actionBtnHtml = `<button type="button" class="btn-stop-emulator" data-id="${dev.id}">🛑 Power Off</button>`;
+            } else if (isBooting) {
+                actionBtnHtml = `<span class="avd-status-badge booting">Booting...</span>`;
+            }
+
+            const stateBadgeClass = dev.state; // online, offline, booting
+            
+            card.innerHTML = `
+                <div class="avd-details">
+                    <h5>${dev.name}</h5>
+                    <p>ID: ${dev.id} | Size: ${dev.resolution} | Type: ${typeLabel}</p>
+                </div>
+                <div class="avd-actions">
+                    ${!isBooting ? `<span class="avd-status-badge ${stateBadgeClass}">${dev.state}</span>` : ""}
+                    ${actionBtnHtml}
+                </div>
+            `;
+            elDrawerAvdsList.appendChild(card);
+        });
+
+        // Wire up boot button clicks
+        elDrawerAvdsList.querySelectorAll(".btn-boot-emulator").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                const id = e.target.dataset.id;
+                e.target.disabled = true;
+                e.target.innerText = "Booting...";
+                
+                try {
+                    const bootRes = await fetch(`/api/fleet/emulators/${id}/start`, { method: "POST" });
+                    if (bootRes.ok) {
+                        showToast("Boot Triggered", `Virtual device ${id} is booting up.`, "⚡");
+                        loadDrawerEmulators();
+                        
+                        // Poll state dynamically for 5 seconds to transition in real time
+                        let pollAttempts = 0;
+                        const pollInterval = setInterval(async () => {
+                            pollAttempts++;
+                            await loadDrawerEmulators();
+                            await checkStatusAndDevices(); // Refresh main selector list
+                            
+                            if (pollAttempts >= 5) {
+                                clearInterval(pollInterval);
+                            }
+                        }, 1200);
+                    } else {
+                        showToast("Boot Failed", "Failed to launch emulator process.", "❌");
+                    }
+                } catch (err) {
+                    console.error("Failed to boot emulator:", err);
+                }
+            });
+        });
+
+        // Wire up stop button clicks
+        elDrawerAvdsList.querySelectorAll(".btn-stop-emulator").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                const id = e.target.dataset.id;
+                e.target.disabled = true;
+                e.target.innerText = "Shutting Down...";
+                
+                try {
+                    const stopRes = await fetch(`/api/fleet/emulators/${id}/stop`, { method: "POST" });
+                    if (stopRes.ok) {
+                        showToast("Shutdown Triggered", `Virtual device ${id} has been powered off.`, "🛑");
+                        loadDrawerEmulators();
+                        setTimeout(() => {
+                            loadDrawerEmulators();
+                            checkStatusAndDevices(); // Refresh main list
+                        }, 1500);
+                    } else {
+                        showToast("Shutdown Failed", "Failed to power off emulator process.", "❌");
+                    }
+                } catch (err) {
+                    console.error("Failed to power off emulator:", err);
+                }
+            });
+        });
+
+    } catch (err) {
+        console.error("Failed to load drawer emulators list:", err);
+    }
+}
+
+// Refresh button listener
+if (elRefreshDrawerAvds) {
+    elRefreshDrawerAvds.addEventListener("click", loadDrawerEmulators);
+}
+
+// Handle dynamic virtual device creation form submit
+if (elCreateAvdForm) {
+    elCreateAvdForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        const name = document.getElementById("new-avd-name").value.trim();
+        const model = document.getElementById("new-avd-model").value;
+        const brand = document.getElementById("new-avd-brand").value;
+        const resolution = document.getElementById("new-avd-resolution").value;
+        const mode = document.getElementById("new-avd-mode").value;
+        const isSimulated = mode === "simulated";
+
+        const btnSubmit = elCreateAvdForm.querySelector("button[type='submit']");
+        btnSubmit.disabled = true;
+        btnSubmit.querySelector("span").innerText = "Creating...";
+
+        try {
+            const res = await fetch("/api/fleet/emulators/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name,
+                    model,
+                    brand,
+                    resolution,
+                    is_simulated: isSimulated
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                showToast("Device Created Successfully", `Virtual device config provisioned: ${data.device_id}`, "🎉");
+                elCreateAvdForm.reset();
+                loadDrawerEmulators();
+                checkStatusAndDevices(); // Update dropdown target selector
+            } else {
+                const err = await res.json();
+                showToast("Provisioning Failed", err.detail || "Error provisioning virtual device config.", "❌");
+            }
+        } catch (err) {
+            console.error("Failed to create virtual device config:", err);
+            showToast("Connection Error", "Failed to send request to backend.", "❌");
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.querySelector("span").innerText = "Create Device";
+        }
+    });
+}
+
 
 // Init on load
 checkStatusAndDevices();

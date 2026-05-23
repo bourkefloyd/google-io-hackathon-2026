@@ -111,6 +111,12 @@ body {
     color: var(--text-muted);
 }
 
+.system-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 /* Status Indicator */
 .status-indicator {
     display: flex;
@@ -382,11 +388,19 @@ input[type="range"] {
     border-radius: 8px;
     cursor: pointer;
     transition: var(--transition-smooth);
+    color: var(--text-main);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
 }
 
 .btn-secondary:hover {
-    border-color: var(--text-muted);
+    border-color: var(--primary);
     background-color: hsla(220, 20%, 12%, 0.8);
+    color: var(--primary-hover);
+    box-shadow: 0 0 10px var(--primary-glow);
 }
 
 .btn-danger {
@@ -1234,9 +1248,11 @@ input[type="range"] {
 
 .raw-screen-image {
     display: block;
-    height: 420px;
-    width: auto;
+    width: 100%;
+    height: auto;
+    max-height: 420px;
     object-fit: contain;
+    transition: var(--transition-smooth);
 }
 
 .image-container-llm {
@@ -1260,8 +1276,17 @@ input[type="range"] {
 
 .raw-screen-image-llm {
     display: block;
-    width: auto;
+    width: 100%;
+    height: auto;
+    max-height: 420px;
     object-fit: contain;
+    transition: var(--transition-smooth);
+}
+
+/* Cinematic Landscape Viewport Cockpit Adaptation */
+.dual-viewports.landscape-mode .viewport-wrapper {
+    max-width: 600px;
+    transition: max-width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .viewport-title {
@@ -1690,4 +1715,344 @@ input[type="range"] {
     100% {
         box-shadow: 0 0 10px rgba(115, 103, 240, 0.6), inset 0 0 4px rgba(115, 103, 240, 0.2);
     }
+}
+
+
+/* ==========================================
+   5. AVD & Device Manager Slide-Drawer CSS
+   ========================================== */
+
+.device-manager-drawer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1000;
+    pointer-events: none;
+    transition: visibility 0.4s;
+    visibility: hidden;
+}
+
+.device-manager-drawer.open {
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.drawer-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.device-manager-drawer.open .drawer-overlay {
+    opacity: 1;
+}
+
+.drawer-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    max-width: 480px;
+    height: 100%;
+    background: linear-gradient(180deg, hsla(220, 20%, 7%, 0.95) 0%, hsla(220, 25%, 5%, 0.98) 100%);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 2;
+}
+
+.device-manager-drawer.open .drawer-content {
+    transform: translateX(0);
+}
+
+.drawer-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.drawer-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.btn-close-drawer {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.25rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.btn-close-drawer:hover {
+    color: var(--text-main);
+}
+
+.drawer-body {
+    padding: 1.5rem;
+    flex-grow: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Settings Toggle Card */
+.settings-toggle-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: hsla(220, 20%, 10%, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.toggle-labels h4 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 0.15rem;
+}
+
+.toggle-labels p {
+    font-size: 0.72rem;
+    color: var(--text-dimmed);
+}
+
+/* Switch control slider */
+.switch-control {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.switch-control input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider-round {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: hsla(210, 10%, 40%, 0.2);
+    border: 1px solid var(--border-color);
+    transition: .4s;
+    border-radius: 24px;
+}
+
+.slider-round:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--text-muted);
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider-round {
+    background-color: hsla(250, 78%, 62%, 0.2);
+    border-color: var(--primary);
+}
+
+input:checked + .slider-round:before {
+    transform: translateX(20px);
+    background-color: var(--primary-hover);
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+
+/* SDK Status Banner */
+.sdk-status-banner {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    border: 1px solid transparent;
+}
+
+.sdk-status-banner.warning {
+    background-color: hsla(35, 80%, 55%, 0.1);
+    border-color: hsla(35, 80%, 55%, 0.25);
+}
+
+.sdk-status-banner.success {
+    background-color: hsla(150, 60%, 48%, 0.1);
+    border-color: hsla(150, 60%, 48%, 0.25);
+}
+
+.banner-icon {
+    font-size: 1.25rem;
+}
+
+.banner-text h5 {
+    font-weight: 700;
+    margin-bottom: 0.15rem;
+}
+
+.sdk-status-banner.warning .banner-text h5 { color: var(--warning); }
+.sdk-status-banner.success .banner-text h5 { color: var(--success); }
+
+.banner-text p {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+
+/* Drawer Section */
+.drawer-section h4 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 0.75rem;
+}
+
+.section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.section-title-row h4 {
+    margin-bottom: 0;
+}
+
+/* Configured AVDs list */
+.avds-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 240px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+.avd-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: hsla(220, 20%, 8%, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.avd-details h5 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 0.15rem;
+}
+
+.avd-details p {
+    font-size: 0.7rem;
+    color: var(--text-dimmed);
+}
+
+.avd-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.avd-status-badge {
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.avd-status-badge.online {
+    background-color: hsla(150, 60%, 48%, 0.15);
+    color: var(--success);
+    border-color: hsla(150, 60%, 48%, 0.3);
+}
+
+.avd-status-badge.booting {
+    background-color: hsla(35, 80%, 55%, 0.15);
+    color: var(--warning);
+    border-color: hsla(35, 80%, 55%, 0.3);
+    animation: thinkingGlow 1.5s infinite ease-in-out;
+}
+
+.avd-status-badge.offline {
+    background-color: hsla(210, 10%, 40%, 0.15);
+    color: var(--text-dimmed);
+    border-color: hsla(210, 10%, 40%, 0.3);
+}
+
+.btn-boot-emulator {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background-color: hsla(150, 60%, 48%, 0.12);
+    border: 1px solid var(--success);
+    color: var(--success);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.btn-boot-emulator:hover {
+    background-color: var(--success);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(76, 175, 80, 0.3);
+}
+
+.btn-stop-emulator {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background-color: hsla(350, 70%, 50%, 0.12);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.btn-stop-emulator:hover {
+    background-color: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(235, 57, 66, 0.3);
+}
+
+/* Creation Panel Grid */
+.create-device-section {
+    background: hsla(220, 20%, 8%, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
 }

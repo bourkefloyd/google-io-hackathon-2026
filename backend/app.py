@@ -190,7 +190,7 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
             logger.warning(f"All connected devices are busy. Refusing run on {req.device_id}")
             raise HTTPException(
                 status_code=409,
-                detail=f"All active Android devices are currently busy. Please stop the running play sessions or wait before starting a new run."
+                detail="All active Android devices are currently busy. Please stop the running play sessions or wait before starting a new run."
             )
 
     run_id = f"run_{uuid.uuid4().hex[:8]}"
@@ -417,6 +417,115 @@ def clear_telemetry():
     """Clears local timeseries events file."""
     telemetry_collector.clear_local_events()
     return {"status": "success", "message": "Telemetry event log cleared."}
+
+
+# Models for AVD Management
+class CreateEmulatorRequest(BaseModel):
+    name: str
+    model: str
+    brand: str
+    resolution: str
+    is_simulated: bool
+
+class ToggleSimulatedSettings(BaseModel):
+    enable: bool
+
+
+@app.get("/api/fleet/status")
+def get_fleet_status():
+    """Returns whether the Android SDK tools (emulator, avdmanager) are active on the host."""
+    return {
+        "sdk_available": fleet_manager.is_sdk_available(),
+        "adb_available": fleet_manager.is_adb_available(),
+        "simulated_enabled": fleet_manager.enable_simulated_devices
+    }
+
+
+@app.get("/api/fleet/emulators")
+def get_fleet_emulators():
+    """Lists all available emulators (native AVD configs and simulated database devices)."""
+    # 1. Native AVD configs
+    avds = fleet_manager.list_avds()
+    result = []
+    
+    # Track which real ones are actively running via ADB
+    running_adb_devices = []
+    running_avd_names = []
+    if fleet_manager.is_adb_available():
+        running_adb_devices = fleet_manager.list_devices()
+        for d in running_adb_devices:
+            res_avd = fleet_manager.run_cmd(["adb", "-s", d, "emu", "avd", "name"])
+            if res_avd.returncode == 0 and res_avd.stdout.strip():
+                lines = [line.strip() for line in res_avd.stdout.strip().splitlines() if line.strip() and line.strip().lower() != "ok"]
+                if lines:
+                    running_avd_names.append(lines[0])
+        
+    for name in avds:
+        # Determine if it's currently running by matching against parsed AVD names or raw device serials
+        is_running = (name in running_avd_names) or any(name in d for d in running_adb_devices)
+        result.append({
+            "id": name,
+            "model": "AVD Virtual Device",
+            "brand": "Google",
+            "type": "native",
+            "resolution": "1080x1920",
+            "name": f"AVD: {name}",
+            "state": "online" if is_running else "offline"
+        })
+        
+    # 2. Simulated devices
+    for d_id, dev in fleet_manager.simulated_devices.items():
+        result.append({
+            "id": d_id,
+            "model": dev["model"],
+            "brand": dev["brand"],
+            "type": "simulated",
+            "resolution": dev["resolution"],
+            "name": dev["name"],
+            "state": dev["state"]
+        })
+        
+    return {"emulators": result}
+
+
+@app.post("/api/fleet/emulators/create")
+def create_fleet_emulator(req: CreateEmulatorRequest):
+    """Creates a new native AVD or simulated mock device config."""
+    new_id = fleet_manager.create_emulator(
+        name=req.name,
+        model=req.model,
+        brand=req.brand,
+        resolution=req.resolution,
+        is_simulated=req.is_simulated
+    )
+    if not new_id:
+        raise HTTPException(status_code=500, detail="Failed to create virtual device config.")
+    return {"status": "success", "device_id": new_id}
+
+
+@app.post("/api/fleet/emulators/{device_id}/start")
+def start_fleet_emulator(device_id: str):
+    """Triggers boot sequence for the specified AVD or simulated device."""
+    success = fleet_manager.start_emulator(device_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to initiate boot sequence.")
+    return {"status": "success", "message": f"Boot sequence triggered for {device_id}"}
+
+
+@app.post("/api/fleet/emulators/{device_id}/stop")
+def stop_fleet_emulator(device_id: str):
+    """Triggers power shutdown sequence for the specified AVD or simulated device."""
+    success = fleet_manager.stop_emulator(device_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to initiate power off sequence.")
+    return {"status": "success", "message": f"Power off triggered for {device_id}"}
+
+
+@app.post("/api/fleet/settings")
+def toggle_fleet_settings(req: ToggleSimulatedSettings):
+    """Toggles simulated device manager availability in the fleet backend."""
+    fleet_manager.enable_simulated_devices = req.enable
+    return {"status": "success", "simulated_enabled": fleet_manager.enable_simulated_devices}
 
 
 # Mount static runs and frontend directories

@@ -47,6 +47,10 @@
                 </div>
             </div>
             <div class="system-status">
+                <button type="button" class="btn-secondary" id="btn-open-device-manager" title="Manage Android Virtual Devices and Fallback Emulators" style="margin-right: 15px;">
+                    <span class="btn-icon">🔌</span>
+                    <span class="btn-text">Device Manager</span>
+                </button>
                 <div class="status-indicator online" id="server-status">
                     <span class="indicator-dot"></span>
                     <span class="indicator-text">Backend Connected</span>
@@ -264,6 +268,105 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- AVD & Device Manager Slide-Drawer -->
+    <div class="device-manager-drawer" id="device-manager-drawer">
+        <div class="drawer-overlay" id="drawer-overlay"></div>
+        <div class="drawer-content glass-card">
+            <div class="drawer-header">
+                <h3>🔌 AVD & Device Manager</h3>
+                <button type="button" class="btn-close-drawer" id="btn-close-device-manager" title="Close Drawer">✕</button>
+            </div>
+            
+            <div class="drawer-body">
+                <!-- Toggle Fallback Settings -->
+                <div class="settings-toggle-card">
+                    <div class="toggle-labels">
+                        <h4>Enable Simulated Fallback Devices</h4>
+                        <p>Allows creating simulated/mock emulators if native Android SDK tools are missing</p>
+                    </div>
+                    <label class="switch-control">
+                        <input type="checkbox" id="toggle-simulated-devices" checked>
+                        <span class="slider-round"></span>
+                    </label>
+                </div>
+
+                <!-- SDK Status Banner -->
+                <div class="sdk-status-banner warning" id="sdk-status-banner">
+                    <span class="banner-icon">⚠️</span>
+                    <div class="banner-text">
+                        <h5>Android SDK Tooling Missing</h5>
+                        <p>Native `emulator` and `avdmanager` tools not detected. Operating in simulated fallback mode.</p>
+                    </div>
+                </div>
+
+                <!-- Device Fleet Section -->
+                <div class="drawer-section">
+                    <div class="section-title-row">
+                        <h4>Virtual Device Fleet</h4>
+                        <button type="button" class="btn-secondary btn-sm" id="btn-refresh-drawer-emulators">🔄 Refresh</button>
+                    </div>
+                    <div class="avds-list-container" id="drawer-avds-list">
+                        <div class="empty-state">
+                            <p>No configured emulators found.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Virtual Device Section -->
+                <div class="drawer-section create-device-section">
+                    <h4>➕ Create Virtual Device</h4>
+                    <form id="create-avd-form">
+                        <div class="form-group">
+                            <label for="new-avd-name">Device Config Name</label>
+                            <input type="text" id="new-avd-name" placeholder="e.g. Pixel_8_Pro_AVD" required>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="new-avd-model">Hardware Model</label>
+                                <select id="new-avd-model">
+                                    <option value="Pixel 8 Pro">Pixel 8 Pro</option>
+                                    <option value="Pixel 7a" selected>Pixel 7a</option>
+                                    <option value="Pixel 6">Pixel 6</option>
+                                    <option value="Nexus 5">Nexus 5 (Classic)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-avd-brand">Brand</label>
+                                <select id="new-avd-brand">
+                                    <option value="Google" selected>Google</option>
+                                    <option value="Samsung">Samsung</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="new-avd-resolution">Resolution</label>
+                                <select id="new-avd-resolution">
+                                    <option value="1080x2400" selected>1080x2400 (Portrait FHD+)</option>
+                                    <option value="1440x3120">1440x3120 (Portrait QHD+)</option>
+                                    <option value="1080x1920">1080x1920 (Portrait Classic)</option>
+                                    <option value="2400x1080">2400x1080 (Landscape FHD+)</option>
+                                    <option value="3120x1440">3120x1440 (Landscape QHD+)</option>
+                                    <option value="1920x1080">1920x1080 (Landscape Classic)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-avd-mode">Device Mode</label>
+                                <select id="new-avd-mode">
+                                    <option value="simulated" selected>Simulated Fallback</option>
+                                    <option value="native">Native AVD (Requires SDK)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-primary" id="btn-create-avd" style="width: 100%; margin-top: 10px;">
+                            <span>➕ Create Device</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast container for non-blocking notifications -->
