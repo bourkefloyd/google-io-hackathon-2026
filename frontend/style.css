@@ -551,8 +551,6 @@ input[type="range"] {
 .thoughts-box {
     font-size: 0.85rem;
     color: var(--text-main);
-    max-height: 110px;
-    overflow-y: auto;
     font-style: italic;
 }
 
@@ -707,3 +705,463 @@ input[type="range"] {
     white-space: pre-wrap;
     word-break: break-all;
 }
+
+/* 1. Play Session Dropdown Selector in Header */
+.session-selector-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: auto;
+    margin-right: 2rem;
+    background: hsla(220, 20%, 8%, 0.3);
+    border: 1px solid var(--border-color);
+    padding: 0.4rem 1rem;
+    border-radius: 12px;
+}
+
+@media (max-width: 768px) {
+    .session-selector-group {
+        display: none;
+    }
+}
+
+.session-selector-group label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.glass-select {
+    background: hsla(220, 20%, 8%, 0.6);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 0.3rem 1.8rem 0.3rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0aec0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+}
+
+.glass-select:focus, .glass-select:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.glass-select option {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    padding: 0.5rem;
+}
+
+/* 2. Action Buttons Row (Launch / Stop) */
+.btn-actions-row {
+    display: flex;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.btn-actions-row button {
+    flex: 1;
+}
+
+.btn-danger#btn-stop-run {
+    padding: 0.8rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, hsl(350, 70%, 50%), hsl(350, 85%, 60%));
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 4px 15px rgba(235, 57, 66, 0.3);
+    transition: var(--transition-smooth);
+}
+
+.btn-danger#btn-stop-run:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(235, 57, 66, 0.5), 0 0 15px rgba(235, 57, 66, 0.3);
+    background: linear-gradient(135deg, hsl(350, 80%, 55%), hsl(350, 95%, 65%));
+}
+
+.btn-danger#btn-stop-run:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+/* 3. Status Badges Row and Agent State Clarity */
+.badges-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.badge-tag {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.25rem 0.6rem;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid transparent;
+}
+
+.state-tag.idle {
+    background-color: hsla(210, 10%, 40%, 0.15);
+    color: var(--text-dimmed);
+    border-color: hsla(210, 10%, 40%, 0.3);
+}
+
+.state-tag.installing {
+    background-color: hsla(200, 75%, 48%, 0.15);
+    color: var(--secondary);
+    border-color: hsla(200, 75%, 48%, 0.3);
+}
+
+.state-tag.launching {
+    background-color: hsla(270, 70%, 60%, 0.15);
+    color: hsl(270, 80%, 75%);
+    border-color: hsla(270, 70%, 60%, 0.3);
+}
+
+.state-tag.screenshotting {
+    background-color: hsla(180, 60%, 45%, 0.15);
+    color: hsl(180, 70%, 55%);
+    border-color: hsla(180, 60%, 45%, 0.3);
+}
+
+.state-tag.thinking {
+    background-color: hsla(35, 80%, 55%, 0.15);
+    color: var(--warning);
+    border-color: hsla(35, 80%, 55%, 0.3);
+    animation: thinkingGlow 1.5s infinite ease-in-out;
+}
+
+.state-tag.acting {
+    background-color: hsla(250, 78%, 62%, 0.15);
+    color: hsl(250, 85%, 75%);
+    border-color: hsla(250, 78%, 62%, 0.3);
+    animation: actingGlow 1s infinite ease-in-out;
+}
+
+.state-tag.waiting {
+    background-color: hsla(150, 40%, 35%, 0.15);
+    color: hsl(150, 50%, 65%);
+    border-color: hsla(150, 40%, 35%, 0.3);
+}
+
+.state-tag.completed {
+    background-color: hsla(150, 60%, 48%, 0.15);
+    color: var(--success);
+    border-color: hsla(150, 60%, 48%, 0.3);
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.2);
+}
+
+.state-tag.failed, .state-tag.stopped {
+    background-color: hsla(350, 70%, 50%, 0.15);
+    color: var(--danger);
+    border-color: hsla(350, 70%, 50%, 0.3);
+}
+
+@keyframes thinkingGlow {
+    0%, 100% { box-shadow: 0 0 4px transparent; border-color: hsla(35, 80%, 55%, 0.3); }
+    50% { box-shadow: 0 0 10px hsla(35, 80%, 55%, 0.3); border-color: hsla(35, 80%, 55%, 0.8); }
+}
+
+@keyframes actingGlow {
+    0%, 100% { box-shadow: 0 0 4px transparent; border-color: hsla(250, 78%, 62%, 0.3); }
+    50% { box-shadow: 0 0 10px hsla(250, 78%, 62%, 0.3); border-color: hsla(250, 78%, 62%, 0.8); }
+}
+
+/* 4. Horizontal Clickable Step Timeline */
+.timeline-section {
+    width: 100%;
+    background-color: hsla(220, 20%, 8%, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.timeline-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.timeline-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.timeline-step-info {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--secondary);
+    background-color: hsla(200, 75%, 48%, 0.12);
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+}
+
+.timeline-track-container {
+    width: 100%;
+    overflow-x: auto;
+    padding: 0.6rem 0.2rem 1rem 0.2rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.timeline-track-container::-webkit-scrollbar {
+    height: 4px;
+}
+.timeline-track-container::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 2px;
+}
+
+.timeline-track {
+    display: flex;
+    align-items: center;
+    min-width: 100%;
+    position: relative;
+    padding: 0 0.5rem;
+}
+
+.timeline-empty-msg {
+    font-size: 0.75rem;
+    color: var(--text-dimmed);
+    text-align: center;
+    width: 100%;
+    font-style: italic;
+    padding: 0.2rem 0;
+}
+
+/* Timeline Step Nodes */
+.timeline-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    z-index: 2;
+    transition: var(--transition-smooth);
+    user-select: none;
+}
+
+.timeline-node:hover {
+    transform: scale(1.15);
+}
+
+.timeline-connector {
+    flex-grow: 1;
+    height: 3px;
+    background-color: var(--border-color);
+    min-width: 40px;
+    max-width: 80px;
+    position: relative;
+    z-index: 1;
+    margin: 0 -4px;
+    transition: var(--transition-smooth);
+}
+
+.timeline-connector.completed {
+    background-color: var(--secondary);
+}
+
+.node-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background-color: var(--bg-dark);
+    border: 3px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+    position: relative;
+}
+
+.node-dot::after {
+    content: '';
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: transparent;
+    transition: var(--transition-smooth);
+}
+
+/* Timeline Node States */
+.timeline-node.completed .node-dot {
+    border-color: var(--secondary);
+}
+.timeline-node.completed .node-dot::after {
+    background-color: var(--secondary);
+}
+
+.timeline-node.active .node-dot {
+    border-color: var(--warning);
+    box-shadow: 0 0 10px var(--warning);
+}
+.timeline-node.active .node-dot::after {
+    background-color: var(--warning);
+    animation: pingNode 1.5s infinite;
+}
+
+.timeline-node.selected .node-dot {
+    border-color: #fff;
+    background-color: var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
+}
+.timeline-node.selected .node-dot::after {
+    background-color: #fff;
+}
+
+.timeline-node.failed .node-dot {
+    border-color: var(--danger);
+}
+.timeline-node.failed .node-dot::after {
+    background-color: var(--danger);
+}
+
+@keyframes pingNode {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(2); opacity: 0; }
+}
+
+.node-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-top: 0.4rem;
+    position: absolute;
+    top: 18px;
+    white-space: nowrap;
+    transition: var(--transition-smooth);
+}
+
+.timeline-node.selected .node-label {
+    color: #fff;
+}
+
+/* 5. Collapsible Reasoning Cards */
+.reasoning-card {
+    background: hsla(220, 20%, 6%, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 0.6rem;
+    overflow: hidden;
+    transition: var(--transition-smooth);
+}
+
+.reasoning-card:hover {
+    border-color: hsla(250, 50%, 50%, 0.2);
+}
+
+.reasoning-header {
+    padding: 0.5rem 0.8rem;
+    background-color: hsla(220, 20%, 8%, 0.5);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition-smooth);
+}
+
+.reasoning-header:hover {
+    background-color: hsla(220, 20%, 10%, 0.6);
+}
+
+.reasoning-header-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.reasoning-header-icon {
+    font-size: 0.6rem;
+    color: var(--text-dimmed);
+    transition: transform 0.3s ease;
+}
+
+.reasoning-card.collapsed .reasoning-header-icon {
+    transform: rotate(-90deg);
+}
+
+.reasoning-content {
+    padding: 0.75rem 0.8rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    line-height: 1.5;
+    background-color: transparent;
+    transition: max-height 0.3s ease;
+}
+
+.reasoning-card.collapsed .reasoning-content {
+    display: none;
+}
+
+/* Timeline Navigation Buttons styling */
+.timeline-navigation-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-timeline-nav {
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-main);
+    background-color: hsla(220, 20%, 8%, 0.6);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.btn-timeline-nav:hover:not(:disabled) {
+    border-color: var(--primary);
+    background-color: hsla(220, 20%, 15%, 0.8);
+    color: var(--primary-hover);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.btn-timeline-nav:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+
+.timeline-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+

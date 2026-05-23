@@ -9,6 +9,7 @@ const elMaxSteps = document.getElementById("max-steps");
 const elStepsVal = document.getElementById("steps-val");
 const elInstructions = document.getElementById("play-instructions");
 const elLaunchBtn = document.getElementById("btn-launch-fleet");
+const elStopBtn = document.getElementById("btn-stop-run");
 const elFleetList = document.getElementById("fleet-list");
 const elViewportPlaceholder = document.getElementById("viewport-placeholder");
 const elScreenGrab = document.getElementById("screen-grab");
@@ -16,13 +17,24 @@ const elCoordinateOverlay = document.getElementById("coordinate-overlay");
 const elThoughtsBox = document.getElementById("thoughts-box");
 const elCommandBox = document.getElementById("command-box");
 const elStepBadge = document.getElementById("step-badge");
+const elStateBadge = document.getElementById("state-badge");
 const elTelemetryBody = document.getElementById("telemetry-body");
 const elLogcatConsole = document.getElementById("logcat-console");
 const elClearTelemetry = document.getElementById("btn-clear-telemetry");
+const elRunSelect = document.getElementById("run-selector");
+const elTimelineTrack = document.getElementById("timeline-track");
+const elTimelineStepInfo = document.getElementById("timeline-step-info");
+const elBtnPrevStep = document.getElementById("btn-prev-step");
+const elBtnNextStep = document.getElementById("btn-next-step");
 
 let selectedApkName = "";
 let activeEventSource = null;
 let devicesCache = [];
+let activeRunId = null;
+let isHistoricalMode = false;
+let activeRunEvents = [];
+let historicRunEvents = [];
+let selectedStepIndex = -1;
 
 // Tab Panels Switching
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -92,7 +104,7 @@ function populateDevices(devices) {
     updateFleetListUI(devices);
 }
 
-function updateFleetListUI(devices, activeRunId = null, runStatus = "idle") {
+function updateFleetListUI(devices, activeRun = null, runStatus = "idle") {
     elFleetList.innerHTML = "";
     if (devices.length === 0) {
         elFleetList.innerHTML = `
@@ -104,8 +116,8 @@ function updateFleetListUI(devices, activeRunId = null, runStatus = "idle") {
     }
 
     devices.forEach(d => {
-        const statusText = activeRunId ? runStatus : "idle";
-        const badgeClass = activeRunId ? runStatus.toLowerCase() : "idle";
+        const statusText = activeRun ? runStatus : "idle";
+        const badgeClass = activeRun ? runStatus.toLowerCase() : "idle";
         
         const isEmulator = d.type === "emulator" || (d.name && d.name.toLowerCase().includes("virtual")) || d.id.includes("mock");
         const deviceIcon = isEmulator ? "🤖" : "📱";
@@ -220,7 +232,13 @@ elLaunchBtn.addEventListener("click", async () => {
 
     if (!deviceId || !selectedApkName) return;
 
-    // Reset replay view
+    // Reset session selector to active
+    elRunSelect.value = "active";
+    isHistoricalMode = false;
+    toggleFormInputs(false);
+
+    // Reset replay view and events
+    activeRunEvents = [];
     elViewportPlaceholder.classList.add("hidden");
     elScreenGrab.classList.add("hidden");
     elCoordinateOverlay.innerHTML = "";
@@ -229,9 +247,18 @@ elLaunchBtn.addEventListener("click", async () => {
     elStepBadge.innerText = "starting";
     elStepBadge.className = "badge playing";
     
+    elStateBadge.innerText = "booting";
+    elStateBadge.className = "badge-tag state-tag thinking";
+    
     elLaunchBtn.disabled = true;
     elLaunchBtn.querySelector(".btn-text").innerText = "Executing gameplay...";
     
+    elStopBtn.disabled = false;
+    elStopBtn.classList.remove("hidden");
+
+    elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">Waiting for step 1 frame...</div>`;
+    elTimelineStepInfo.innerText = "0 steps";
+
     try {
         const res = await fetch("/api/play", {
             method: "POST",
@@ -247,12 +274,12 @@ elLaunchBtn.addEventListener("click", async () => {
 
         if (res.ok) {
             const data = await res.json();
-            const runId = data.run_id;
+            activeRunId = data.run_id;
             
             // Connect Server-Sent Events (SSE) log stream
             if (activeEventSource) activeEventSource.close();
             
-            activeEventSource = new EventSource(`/api/events?run_id=${runId}`);
+            activeEventSource = new EventSource(`/api/events?run_id=${activeRunId}`);
             
             activeEventSource.onmessage = (event) => {
                 const packet = JSON.parse(event.data);
@@ -276,9 +303,40 @@ elLaunchBtn.addEventListener("click", async () => {
     }
 });
 
+// Stop Running Fleet Play
+elStopBtn.addEventListener("click", async () => {
+    if (!activeRunId) return;
+    elStopBtn.disabled = true;
+    elStopBtn.querySelector(".btn-text").innerText = "Stopping...";
+    try {
+        const res = await fetch(`/api/play/stop?run_id=${activeRunId}`, {
+            method: "POST"
+        });
+        if (res.ok) {
+            console.log("Stop signal sent successfully.");
+        }
+    } catch (e) {
+        console.error("Failed to send stop signal:", e);
+    }
+});
+
 function resetLaunchButtonState() {
     elLaunchBtn.disabled = false;
     elLaunchBtn.querySelector(".btn-text").innerText = "Launch Simulated Player";
+    elStopBtn.disabled = true;
+    elStopBtn.classList.add("hidden");
+    elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
+    toggleFormInputs(true);
+    listHistoricRuns(); // Refresh historic runs dropdown
+}
+
+function toggleFormInputs(enabled) {
+    elDeviceSelect.disabled = !enabled;
+    elRefreshDevices.disabled = !enabled;
+    elPackageName.disabled = !enabled;
+    elMaxSteps.disabled = !enabled;
+    elInstructions.disabled = !enabled;
+    elDropzone.style.pointerEvents = enabled ? "auto" : "none";
 }
 
 // Process Real-time Gameplay telemetry packet from SSE
@@ -288,6 +346,11 @@ function handlePlayUpdate(packet, deviceId) {
     // Update Badge
     elStepBadge.innerText = status;
     elStepBadge.className = `badge ${status}`;
+    
+    if (packet.state) {
+        elStateBadge.innerText = packet.state;
+        elStateBadge.className = `badge-tag state-tag ${packet.state}`;
+    }
     
     // Query cached device properties to avoid hardcoding labels
     const device = devicesCache.find(d => d.id === deviceId) || {
@@ -304,37 +367,48 @@ function handlePlayUpdate(packet, deviceId) {
         elThoughtsBox.innerHTML = `<span>${packet.message}</span>`;
     }
 
+    // Capture logs updates dynamically streamed from backend
+    if (packet.logs_update) {
+        elLogcatConsole.innerText = packet.logs_update;
+        return;
+    }
+
     // Step gameplay loop packets
-    if (status === "playing" && packet.screenshot) {
-        elScreenGrab.src = `data:image/png;base64,${packet.screenshot}`;
-        elScreenGrab.classList.remove("hidden");
-        elViewportPlaceholder.classList.add("hidden");
-        
-        elStepBadge.innerText = `Step ${packet.step}/${packet.max_steps}`;
-
-        if (packet.reasoning) {
-            elThoughtsBox.innerHTML = `<span><strong>Step ${packet.step}:</strong> ${packet.reasoning}</span>`;
-        }
-
-        if (packet.action) {
-            elCommandBox.innerHTML = `<code>${packet.action}</code>`;
+    if (status === "playing" && packet.step) {
+        // Find if this step is already recorded, or insert it
+        let existingEvent = activeRunEvents.find(e => e.step_index === packet.step);
+        if (!existingEvent) {
+            existingEvent = {
+                step_index: packet.step,
+                screenshot: packet.screenshot || "",
+                agent_reasoning: packet.reasoning || "",
+                actions_taken: packet.action && packet.action.includes("Tapped") ? [{type: "tap", params: {x: 0, y: 0}}] : [],
+                action_summary: packet.action || "",
+                logs: ""
+            };
+            activeRunEvents.push(existingEvent);
         } else {
-            elCommandBox.innerHTML = "<code>Observing visual state...</code>";
+            if (packet.screenshot) existingEvent.screenshot = packet.screenshot;
+            if (packet.reasoning) existingEvent.agent_reasoning = packet.reasoning;
+            if (packet.action) existingEvent.action_summary = packet.action;
         }
+
+        // Render current visual timeline
+        renderTimeline(activeRunEvents, "playing");
         
-        // Scan for taps/swipes coordinates inside recorded actions to render visually
-        elCoordinateOverlay.innerHTML = ""; // reset overlay
-        if (packet.action && packet.action.includes("Tapped position")) {
-            // Parse coordinate e.g. Tapped position (0.5, 0.72)
-            const matches = packet.action.match(/\(([^)]+)\)/);
-            if (matches && matches[1]) {
-                const coords = matches[1].split(",");
-                const relX = parseFloat(coords[0].strip ? coords[0].strip() : coords[0]);
-                const relY = parseFloat(coords[1].strip ? coords[1].strip() : coords[1]);
-                renderTapOnOverlay(relX, relY);
+        // Select the active step node
+        const activeNodeIndex = activeRunEvents.length - 1;
+        selectTimelineStep(activeNodeIndex);
+
+        // Highlight selected node
+        setTimeout(() => {
+            const nodes = document.querySelectorAll(".timeline-node");
+            if (nodes[activeNodeIndex]) {
+                nodes.forEach(n => n.classList.remove("selected"));
+                nodes[activeNodeIndex].classList.add("selected");
             }
-        }
-        
+        }, 100);
+
         // Reload telemetry database log table
         loadTelemetryEvents();
     }
@@ -345,21 +419,341 @@ function handlePlayUpdate(packet, deviceId) {
         
         if (packet.logs) {
             elLogcatConsole.innerText = packet.logs;
-        } else {
-            elLogcatConsole.innerText = "No logcat buffer captured.";
         }
         
-        activeEventSource.close();
+        elStateBadge.innerText = "completed";
+        elStateBadge.className = "badge-tag state-tag completed";
+        
+        if (activeEventSource) activeEventSource.close();
         resetLaunchButtonState();
         loadTelemetryEvents();
     }
 
     if (status === "failed") {
         elThoughtsBox.innerHTML = `<span style="color: var(--danger); font-weight: 600;">❌ Session failed: ${packet.message}</span>`;
-        activeEventSource.close();
+        
+        elStateBadge.innerText = "stopped";
+        elStateBadge.className = "badge-tag state-tag failed";
+        
+        if (activeEventSource) activeEventSource.close();
         resetLaunchButtonState();
         loadTelemetryEvents();
     }
+}
+
+// -------------------------------------------------------------
+// Interactive Timeline and Structured Reasoning Parser Logic
+// -------------------------------------------------------------
+
+function renderTimeline(events, currentStatus = "completed") {
+    elTimelineTrack.innerHTML = "";
+    if (!events || events.length === 0) {
+        elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">No steps recorded in this session.</div>`;
+        elTimelineStepInfo.innerText = "Idle";
+        if (elBtnPrevStep && elBtnNextStep) {
+            elBtnPrevStep.disabled = true;
+            elBtnNextStep.disabled = true;
+        }
+        selectedStepIndex = -1;
+        return;
+    }
+    
+    events.forEach((ev, idx) => {
+        const node = document.createElement("div");
+        node.className = "timeline-node";
+        node.dataset.index = idx;
+        
+        if (idx === events.length - 1 && currentStatus === "playing") {
+            node.classList.add("active");
+        } else {
+            node.classList.add("completed");
+        }
+        
+        node.innerHTML = `
+            <div class="node-dot"></div>
+            <span class="node-label">Step ${ev.step_index}</span>
+        `;
+        
+        node.addEventListener("click", () => {
+            document.querySelectorAll(".timeline-node").forEach(n => n.classList.remove("selected"));
+            node.classList.add("selected");
+            selectTimelineStep(idx);
+        });
+        
+        elTimelineTrack.appendChild(node);
+        
+        if (idx < events.length - 1) {
+            const connector = document.createElement("div");
+            connector.className = "timeline-connector completed";
+            elTimelineTrack.appendChild(connector);
+        }
+    });
+    
+    elTimelineStepInfo.innerText = `${events.length} steps (${currentStatus})`;
+}
+
+function selectTimelineStep(index) {
+    const events = isHistoricalMode ? historicRunEvents : activeRunEvents;
+    if (!events || index >= events.length || index < 0) return;
+    
+    selectedStepIndex = index;
+    const ev = events[index];
+    
+    // 1. Update Screenshot Grab (Dynamic base64 or static served path URL)
+    if (ev.screenshot) {
+        elScreenGrab.src = `data:image/png;base64,${ev.screenshot}`;
+        elScreenGrab.classList.remove("hidden");
+        elViewportPlaceholder.classList.add("hidden");
+    } else if (ev.screenshot_path) {
+        // Load fast static image from server
+        elScreenGrab.src = ev.screenshot_path;
+        elScreenGrab.classList.remove("hidden");
+        elViewportPlaceholder.classList.add("hidden");
+    } else {
+        elScreenGrab.src = "";
+        elScreenGrab.classList.add("hidden");
+        elViewportPlaceholder.classList.remove("hidden");
+    }
+    
+    // 2. Parse and render Structured Reasoning Cards
+    renderStructuredReasoning(ev.agent_reasoning);
+    
+    // 3. Render coordinate tap dot overlay
+    elCoordinateOverlay.innerHTML = "";
+    if (ev.action_summary && ev.action_summary.includes("Tapped position")) {
+        const matches = ev.action_summary.match(/\(([^)]+)\)/);
+        if (matches && matches[1]) {
+            const coords = matches[1].split(",");
+            const relX = parseFloat(coords[0]);
+            const relY = parseFloat(coords[1]);
+            if (!isNaN(relX) && !isNaN(relY)) {
+                renderTapOnOverlay(relX, relY);
+            }
+        }
+    }
+    
+    // 4. Update action commands box
+    elCommandBox.innerHTML = `<code>${ev.action_summary || "No actions performed (observing)"}</code>`;
+    
+    // 5. Update timeline status meta info
+    elStepBadge.innerText = `Step ${ev.step_index}`;
+    
+    // 6. Update step-specific logs
+    if (ev.logs) {
+        elLogcatConsole.innerText = ev.logs;
+    } else {
+        elLogcatConsole.innerText = "No step-specific logcat output captured for this step.";
+    }
+    
+    // 7. Update Prev/Next button states
+    if (elBtnPrevStep && elBtnNextStep) {
+        elBtnPrevStep.disabled = index <= 0;
+        elBtnNextStep.disabled = index >= events.length - 1;
+    }
+    
+    // 8. Highlight selected node visually & scroll it into center view
+    const nodes = document.querySelectorAll(".timeline-node");
+    nodes.forEach((n, idx) => {
+        if (idx === index) {
+            n.classList.add("selected");
+            n.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        } else {
+            n.classList.remove("selected");
+        }
+    });
+}
+
+function renderStructuredReasoning(reasoningText) {
+    elThoughtsBox.innerHTML = "";
+    if (!reasoningText) {
+        elThoughtsBox.innerHTML = `<span class="dimmed">No agent thoughts recorded.</span>`;
+        return;
+    }
+    
+    const sections = parseReasoning(reasoningText);
+    if (sections.length === 0) {
+        elThoughtsBox.innerHTML = `<span>${reasoningText}</span>`;
+        return;
+    }
+    
+    sections.forEach(s => {
+        const card = document.createElement("div");
+        card.className = "reasoning-card";
+        
+        const header = document.createElement("div");
+        header.className = "reasoning-header";
+        header.innerHTML = `
+            <span class="reasoning-header-title">💡 ${s.title}</span>
+            <span class="reasoning-header-icon">▼</span>
+        `;
+        
+        const content = document.createElement("div");
+        content.className = "reasoning-content";
+        content.innerHTML = s.content.join("<br><br>");
+        
+        header.addEventListener("click", () => {
+            card.classList.toggle("collapsed");
+        });
+        
+        card.appendChild(header);
+        card.appendChild(content);
+        elThoughtsBox.appendChild(card);
+    });
+}
+
+function parseReasoning(reasoningText) {
+    if (!reasoningText) return [];
+    
+    const lines = reasoningText.split('\n');
+    const sections = [];
+    let currentSection = { title: "Overview Analysis", content: [] };
+    
+    for (let line of lines) {
+        line = line.trim();
+        if (!line) continue;
+        
+        // Match bold titles like **Title** or **Title:** or markdown header ### Title
+        const boldMatch = line.match(/^\*\*(.*?)\*\*$/) || line.match(/^\*\*(.*?)\*\*:\s*(.*)$/) || line.match(/^(?:###|##|#)\s*(.*)$/);
+        
+        if (boldMatch) {
+            if (currentSection.title || currentSection.content.length > 0) {
+                sections.push(currentSection);
+            }
+            const title = (boldMatch[1] || '').replace(/:$/, '').trim();
+            const initialText = boldMatch[2] ? [boldMatch[2].trim()] : [];
+            currentSection = { title: title, content: initialText };
+        } else {
+            currentSection.content.push(line);
+        }
+    }
+    if (currentSection.title || currentSection.content.length > 0) {
+        sections.push(currentSection);
+    }
+    
+    return sections.filter(s => s.content.length > 0);
+}
+
+// -------------------------------------------------------------
+// History Manager & Past Runs Selector API Logic
+// -------------------------------------------------------------
+
+async function listHistoricRuns() {
+    try {
+        const res = await fetch("/api/runs");
+        if (res.ok) {
+            const data = await res.json();
+            populateHistoricRunsSelector(data.runs);
+        }
+    } catch (e) {
+        console.error("Failed to load historic runs list:", e);
+    }
+}
+
+function populateHistoricRunsSelector(runs) {
+    // Keep standard Active option
+    elRunSelect.innerHTML = `
+        <option value="active">🟢 Active Play Session</option>
+    `;
+    
+    if (!runs || runs.length === 0) return;
+    
+    runs.forEach(r => {
+        const opt = document.createElement("option");
+        opt.value = r.run_id;
+        
+        const date = r.timestamp ? r.timestamp.split("T")[0] : "";
+        const time = r.timestamp ? r.timestamp.split("T")[1].substring(0, 5) : "";
+        const statusIcon = r.status === "completed" ? "✅" : (r.status === "stopped" ? "🛑" : "❌");
+        
+        opt.innerText = `${statusIcon} ${r.run_id} | ${r.apk_name || "Game"} | ${date} ${time} (${r.status})`;
+        elRunSelect.appendChild(opt);
+    });
+}
+
+// Session Selector Listener
+elRunSelect.addEventListener("change", async (e) => {
+    const val = e.target.value;
+    if (val === "active") {
+        isHistoricalMode = false;
+        toggleFormInputs(true);
+        clearTimelineDetails();
+        
+        // Re-render active run if exists
+        renderTimeline(activeRunEvents, activeRunId ? "playing" : "completed");
+        if (activeRunEvents.length > 0) {
+            selectTimelineStep(activeRunEvents.length - 1);
+        }
+    } else {
+        isHistoricalMode = true;
+        toggleFormInputs(false);
+        await loadHistoricRunDetails(val);
+    }
+});
+
+async function loadHistoricRunDetails(runId) {
+    elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">Loading historic run details...</div>`;
+    try {
+        const res = await fetch(`/api/runs/${runId}`);
+        if (res.ok) {
+            const data = await res.json();
+            historicRunEvents = data.telemetry || [];
+            
+            // Render the full static timeline
+            renderTimeline(historicRunEvents, data.config.status);
+            
+            // Load the first step by default
+            if (historicRunEvents.length > 0) {
+                selectTimelineStep(0);
+                
+                // Highlight first node
+                setTimeout(() => {
+                    const nodes = document.querySelectorAll(".timeline-node");
+                    if (nodes[0]) {
+                        nodes.forEach(n => n.classList.remove("selected"));
+                        nodes[0].classList.add("selected");
+                    }
+                }, 100);
+            } else {
+                clearTimelineDetails();
+            }
+            
+            // Set status badges
+            elStepBadge.innerText = data.config.status;
+            elStepBadge.className = `badge ${data.config.status}`;
+            
+            elStateBadge.innerText = "historic";
+            elStateBadge.className = "badge-tag state-tag idle";
+            
+            // Load final full logcat
+            elLogcatConsole.innerText = data.logs || "No logs were captured for this past run.";
+        } else {
+            alert("Failed to fetch historic run metadata.");
+        }
+    } catch (e) {
+        console.error("Failed to load historic run details:", e);
+        elTimelineTrack.innerHTML = `<div class="timeline-empty-msg" style="color: var(--danger)">Error loading past run.</div>`;
+    }
+}
+
+function clearTimelineDetails() {
+    elViewportPlaceholder.classList.remove("hidden");
+    elScreenGrab.classList.add("hidden");
+    elScreenGrab.src = "";
+    elCoordinateOverlay.innerHTML = "";
+    elThoughtsBox.innerHTML = "<span class='dimmed'>Replay viewport is idle. Select a step to inspect.</span>";
+    elCommandBox.innerHTML = "<code>adb shell idle</code>";
+    elStepBadge.innerText = "Idle";
+    elStepBadge.className = "badge idle";
+    elStateBadge.innerText = "idle";
+    elStateBadge.className = "badge-tag state-tag idle";
+    elLogcatConsole.innerText = "Waiting for game session logcat dump...";
+    
+    // Disable prev/next buttons on clear
+    if (elBtnPrevStep && elBtnNextStep) {
+        elBtnPrevStep.disabled = true;
+        elBtnNextStep.disabled = true;
+    }
+    selectedStepIndex = -1;
 }
 
 // Fetch Telemetry history from backend database
@@ -388,7 +782,7 @@ function renderTelemetryTable(events) {
     }
 
     // Render latest first (reverse order)
-    events.reverse().forEach(e => {
+    events.slice().reverse().forEach(e => {
         const tr = document.createElement("tr");
         
         // Format timestamp
@@ -422,6 +816,25 @@ elClearTelemetry.addEventListener("click", async () => {
     }
 });
 
+// Next / Prev Step Navigation Click Listeners
+if (elBtnPrevStep) {
+    elBtnPrevStep.addEventListener("click", () => {
+        if (selectedStepIndex > 0) {
+            selectTimelineStep(selectedStepIndex - 1);
+        }
+    });
+}
+
+if (elBtnNextStep) {
+    elBtnNextStep.addEventListener("click", () => {
+        const events = isHistoricalMode ? historicRunEvents : activeRunEvents;
+        if (events && selectedStepIndex < events.length - 1) {
+            selectTimelineStep(selectedStepIndex + 1);
+        }
+    });
+}
+
 // Init on load
 checkStatusAndDevices();
 loadTelemetryEvents();
+listHistoricRuns();

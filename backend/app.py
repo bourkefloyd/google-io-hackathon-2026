@@ -50,6 +50,9 @@ telemetry_collector = TelemetryCollector()
 # Global dictionary to hold active run SSE message queues
 active_queues: Dict[str, asyncio.Queue] = {}
 
+# Set of run IDs that have been requested to stop
+stopped_runs = set()
+
 
 class PlayRequest(BaseModel):
     device_id: str
@@ -130,9 +133,89 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
         telemetry_collector=telemetry_collector,
         logs_callback=push_log_event,
         max_steps=req.max_steps,
+        is_stopped_callback=lambda: run_id in stopped_runs,
     )
 
     return {"status": "started", "run_id": run_id}
+
+
+@app.post("/api/play/stop")
+def stop_play_run(run_id: str):
+    """Stops an active autonomous play run."""
+    if run_id not in active_queues:
+        raise HTTPException(
+            status_code=404, detail="Run session not active or completed."
+        )
+
+    stopped_runs.add(run_id)
+    logger.info(f"Stop signal sent to run session: {run_id}")
+    return {"status": "success", "message": "Stop signal sent to run session."}
+
+
+@app.get("/api/runs")
+def list_runs():
+    """Lists all historic runs by scanning the runs directory and reading their configs."""
+    import json
+    runs_dir = "runs"
+    results = []
+    if os.path.exists(runs_dir):
+        for d in os.listdir(runs_dir):
+            d_path = os.path.join(runs_dir, d)
+            if os.path.isdir(d_path):
+                config_path = os.path.join(d_path, "run_config.json")
+                if os.path.exists(config_path):
+                    try:
+                       with open(config_path, "r") as f:
+                           results.append(json.load(f))
+                    except Exception as e:
+                       logger.error(f"Failed to read config for run {d}: {e}")
+    # Sort by timestamp descending (newest runs first)
+    results.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    return {"runs": results}
+
+
+@app.get("/api/runs/{run_id}")
+def get_run_details(run_id: str):
+    """Gets full configuration, telemetry steps, and logcats of a specific historic run."""
+    import json
+    run_dir = os.path.join("runs", run_id)
+    if not os.path.exists(run_dir) or not os.path.isdir(run_dir):
+        raise HTTPException(status_code=404, detail="Run not found.")
+    
+    config_data = {}
+    config_path = os.path.join(run_dir, "run_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config_data = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read run config for {run_id}: {e}")
+    else:
+        config_data = {"run_id": run_id, "status": "unknown"}
+
+    telemetry_data = []
+    telemetry_path = os.path.join(run_dir, "telemetry_summary.json")
+    if os.path.exists(telemetry_path):
+        try:
+            with open(telemetry_path, "r") as f:
+                telemetry_data = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read telemetry for {run_id}: {e}")
+
+    logcat_content = ""
+    logcat_path = os.path.join(run_dir, "device_logcat.log")
+    if os.path.exists(logcat_path):
+        try:
+            with open(logcat_path, "r") as f:
+                logcat_content = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read device logcat for {run_id}: {e}")
+
+    return {
+        "config": config_data,
+        "telemetry": telemetry_data,
+        "logs": logcat_content
+    }
 
 
 @app.get("/api/events")
@@ -158,9 +241,11 @@ async def stream_run_events(run_id: str):
         except asyncio.CancelledError:
             logger.info(f"SSE client disconnected from run {run_id}")
         finally:
-            # Cleanup queue
+            # Cleanup queue and stopped run status
             if run_id in active_queues:
                 del active_queues[run_id]
+            if run_id in stopped_runs:
+                stopped_runs.remove(run_id)
 
     def import_json_dumps(d):
         import json
@@ -198,8 +283,9 @@ def clear_telemetry():
     return {"status": "success", "message": "Telemetry event log cleared."}
 
 
-# Mount static frontend build
-# Ensure frontend files exist or fallback to API serving
+# Mount static runs and frontend directories
+app.mount("/runs", StaticFiles(directory="runs"), name="runs")
+
 FRONTEND_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "frontend")
 )
@@ -213,3 +299,4 @@ else:
             "status": "ok",
             "message": "Simulated player backend running. Frontend directory missing.",
         }
+

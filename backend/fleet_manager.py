@@ -15,6 +15,7 @@ class FleetManager:
         self._last_actions: Dict[str, str] = {}
         self._last_taps: Dict[str, Optional[tuple]] = {}
         self._last_swipes: Dict[str, Optional[tuple]] = {}
+        self._apk_details_cache: Dict[str, Dict[str, str]] = {}
 
     def get_device_details(self, device_id: str) -> Dict[str, str]:
         """Gets device model, brand, type (emulator/physical), and resolution."""
@@ -163,15 +164,21 @@ class FleetManager:
         """Parses package name and version information from the APK."""
         if not os.path.exists(apk_path):
             return None
+        if hasattr(self, "_apk_details_cache") and apk_path in self._apk_details_cache:
+            return self._apk_details_cache[apk_path]
         try:
             from pyaxmlparser import APK
 
             apk = APK(apk_path)
-            return {
+            details = {
                 "package": apk.package,
                 "version_name": apk.version_name,
                 "version_code": apk.version_code,
             }
+            if not hasattr(self, "_apk_details_cache"):
+                self._apk_details_cache = {}
+            self._apk_details_cache[apk_path] = details
+            return details
         except Exception as e:
             logger.error(f"Failed to parse APK details from {apk_path}: {e}")
             return None
@@ -316,6 +323,17 @@ class FleetManager:
         )
         return res.returncode == 0
 
+    def keep_device_awake(self, device_id: str) -> None:
+        """Keeps the physical or virtual device awake, wakes it up, and dismisses keyguard."""
+        if "mock" in device_id:
+            logger.info(f"[MOCK ADB] Simulating keeping device awake on {device_id}")
+            return
+
+        logger.info(f"Ensuring device {device_id} stays awake, waking up screen, and dismissing keyguard.")
+        self.run_cmd(["adb", "-s", device_id, "shell", "svc", "power", "stayon", "true"])
+        self.run_cmd(["adb", "-s", device_id, "shell", "input", "keyevent", "224"])
+        self.run_cmd(["adb", "-s", device_id, "shell", "wm", "dismiss-keyguard"])
+
     def force_stop_app(self, device_id: str, package_name: str) -> None:
         """Kills the app."""
         if "mock" in device_id:
@@ -368,7 +386,17 @@ class FleetManager:
                     stderr=subprocess.PIPE,
                     timeout=10.0,
                 )
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                try:
+                    from PIL import Image as PILImage
+                    img = PILImage.open(output_path)
+                    img.thumbnail((540, 1200))
+                    img.save(output_path, "PNG")
+                    logger.info(f"Optimized screenshot from device: size reduced to {os.path.getsize(output_path)//1024}KB")
+                except Exception as ex:
+                    logger.error(f"Failed to optimize screenshot: {ex}")
+                return True
+            return False
         except Exception as e:
             logger.error(f"Error capturing screenshot for {device_id}: {e}")
             return False

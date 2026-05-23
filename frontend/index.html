@@ -21,6 +21,13 @@
                     <p>Simulated Player Ingestion & Telemetry</p>
                 </div>
             </div>
+            <!-- Central Play Session selector -->
+            <div class="session-selector-group">
+                <label for="run-selector">📂 Select Session:</label>
+                <select id="run-selector" class="glass-select">
+                    <option value="active">🟢 Active Play Session</option>
+                </select>
+            </div>
             <div class="system-status">
                 <div class="status-indicator online" id="server-status">
                     <span class="indicator-dot"></span>
@@ -87,11 +94,17 @@
 4. If an ad banner pops up, tap back to exit."></textarea>
                         </div>
 
-                        <!-- Launch Button -->
-                        <button type="button" class="btn-primary pulse" id="btn-launch-fleet" disabled>
-                            <span class="btn-icon">⚡</span>
-                            <span class="btn-text">Launch Simulated Player</span>
-                        </button>
+                        <!-- Launch and Stop Actions -->
+                        <div class="btn-actions-row">
+                            <button type="button" class="btn-primary pulse" id="btn-launch-fleet" disabled>
+                                <span class="btn-icon">⚡</span>
+                                <span class="btn-text">Launch Simulated Player</span>
+                            </button>
+                            <button type="button" class="btn-danger hidden" id="btn-stop-run" disabled>
+                                <span class="btn-icon">🛑</span>
+                                <span class="btn-text">Stop Run</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -116,7 +129,10 @@
                     <div class="card-header">
                         <div class="header-with-badge">
                             <h2>3. Live Gameplay Replay</h2>
-                            <span class="badge" id="step-badge">Idle</span>
+                            <div class="badges-row">
+                                <span class="badge" id="step-badge">Idle</span>
+                                <span class="badge-tag state-tag idle" id="state-badge">idle</span>
+                            </div>
                         </div>
                     </div>
                     <div class="card-content visual-content">
@@ -130,6 +146,25 @@
                             <!-- Relative Visual Overlays (Tap Dots / Swipe Vectors) -->
                             <img src="" id="screen-grab" class="screen-image hidden" alt="Emulator Screenshot">
                             <div class="coordinate-overlay" id="coordinate-overlay"></div>
+                        </div>
+
+                        <!-- Horizontal Clickable Step Timeline -->
+                        <div class="timeline-section">
+                            <div class="timeline-meta-row">
+                                <div class="timeline-meta-left">
+                                    <span class="timeline-title">📍 Step Timeline</span>
+                                    <span id="timeline-step-info" class="timeline-step-info">Idle</span>
+                                </div>
+                                <div class="timeline-navigation-controls">
+                                    <button type="button" class="btn-timeline-nav" id="btn-prev-step" disabled title="Previous Step">◀ Prev</button>
+                                    <button type="button" class="btn-timeline-nav" id="btn-next-step" disabled title="Next Step">Next ▶</button>
+                                </div>
+                            </div>
+                            <div class="timeline-track-container">
+                                <div class="timeline-track" id="timeline-track">
+                                    <div class="timeline-empty-msg">No active execution. Launch a run or select historic run to interact.</div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Agent Thoughts / Reasoning -->

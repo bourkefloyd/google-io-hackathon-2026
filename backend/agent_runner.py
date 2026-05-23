@@ -3,7 +3,7 @@ import asyncio
 import base64
 import logging
 from datetime import datetime
-from typing import Callable, List, Dict, Any
+from typing import Callable, List, Dict, Any, Optional
 
 from fleet_manager import FleetManager
 from ingestion import TelemetryCollector
@@ -195,56 +195,136 @@ async def run_agent_play_loop(
     telemetry_collector: TelemetryCollector,
     logs_callback: Callable[[Dict[str, Any]], None],
     max_steps: int = 15,
+    is_stopped_callback: Optional[Callable[[], bool]] = None,
 ):
     """Orchestrates the entire visual playing loop for a simulated player."""
+    import json
     run_dir = os.path.join("runs", run_id)
     os.makedirs(run_dir, exist_ok=True)
 
+    # Initialize and persist run_config.json
+    run_config = {
+        "run_id": run_id,
+        "device_id": device_id,
+        "apk_name": os.path.basename(apk_path),
+        "package_name": package_name,
+        "instructions": instructions,
+        "max_steps": max_steps,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "status": "playing"
+    }
+    with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    telemetry_events = []
+    last_logcat_len = 0
+    logcat_filepath = os.path.join(run_dir, "device_logcat.log")
+
+    session_tools = DeviceAgentTools(device_id, fleet_manager)
+
+    # Start background log streaming task
+    async def log_streamer():
+        try:
+            while not session_tools.session_completed:
+                logcat_data = fleet_manager.dump_logcat(device_id)
+                with open(logcat_filepath, "w") as lf:
+                    lf.write(logcat_data)
+                logs_callback({
+                    "status": "playing",
+                    "logs_update": logcat_data,
+                })
+                await asyncio.sleep(5.0)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in background log streamer: {e}")
+
+    log_task = None
+
     try:
+        # Keep the target device awake, wake up the screen, and dismiss keyguard
+        fleet_manager.keep_device_awake(device_id)
+
         # Step 1: Install & Prepare
-        logs_callback({"status": "starting", "message": "Installing APK build..."})
+        logs_callback({"status": "starting", "state": "installing", "message": "Installing APK build..."})
         if not fleet_manager.install_apk(device_id, apk_path):
             logs_callback({"status": "failed", "message": "Failed to install APK."})
+            run_config["status"] = "failed"
+            with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+                json.dump(run_config, f, indent=2)
             return
 
         # Clear logcats for clean buffer telemetry
         fleet_manager.clear_logcat(device_id)
 
-        logs_callback({"status": "starting", "message": "Launching application..."})
+        # Start the background logs streaming task
+        log_task = asyncio.create_task(log_streamer())
+
+        logs_callback({"status": "starting", "state": "launching", "message": "Launching application..."})
         if not fleet_manager.launch_app(device_id, package_name):
             logs_callback(
                 {"status": "failed", "message": "Failed to launch application."}
             )
+            run_config["status"] = "failed"
+            with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+                json.dump(run_config, f, indent=2)
             return
 
-        await asyncio.sleep(4.0)  # Let app load
-
-        # Step 2: Initialize tools and AGY Agent
-        session_tools = DeviceAgentTools(device_id, fleet_manager)
+        await asyncio.sleep(3.0)  # Let app load
 
         # Mock mode fallback if Antigravity SDK is not fully wired or GEMINI_API_KEY is not configured
         if not AGY_AVAILABLE or not os.getenv("GEMINI_API_KEY"):
             logger.warning(
                 "google-antigravity SDK not found or GEMINI_API_KEY not configured. Running in MOCK agent playback mode."
             )
+            # Stop log task before entering mock loop which spins up its own log streamer
+            if log_task and not log_task.done():
+                log_task.cancel()
+                try:
+                    await log_task
+                except asyncio.CancelledError:
+                    pass
             await run_mock_play_loop(
-                device_id,
-                run_dir,
-                session_tools,
-                telemetry_collector,
-                logs_callback,
-                max_steps,
+                device_id=device_id,
+                apk_path=apk_path,
+                package_name=package_name,
+                instructions=instructions,
+                run_id=run_id,
+                run_dir=run_dir,
+                session_tools=session_tools,
+                telemetry_collector=telemetry_collector,
+                logs_callback=logs_callback,
+                max_steps=max_steps,
+                is_stopped_callback=is_stopped_callback,
             )
             return
 
         logs_callback(
             {
                 "status": "playing",
+                "state": "thinking",
                 "message": "Booting Google Antigravity autonomous play agent...",
             }
         )
 
+        from google.antigravity.types import GeminiConfig, ModelConfig, ModelEntry, GenerationConfig, ThinkingLevel
+
+        gemini_config = GeminiConfig(
+            models=ModelConfig(
+                default=ModelEntry(
+                    name="gemini-3.5-flash",
+                    generation=GenerationConfig(
+                        thinking_level=ThinkingLevel.MINIMAL
+                    )
+                )
+            )
+        )
+
+        from google.antigravity.hooks import policy
+
         config = LocalAgentConfig(
+            gemini_config=gemini_config,
+            policies=[policy.allow_all()],
             tools=[
                 session_tools.tap,
                 session_tools.swipe,
@@ -256,32 +336,42 @@ async def run_agent_play_loop(
             ],
             system_instructions=(
                 f"You are playing an Android game ({package_name}) on device {device_id} based on goals: {instructions}.\n"
-                "You inspect the game via screenshot frames and execute relative inputs. Always think step-by-step."
+                "You inspect the game via screenshot frames and execute relative inputs. Always think step-by-step.\n"
+                "IMPORTANT: You must use the provided tools (tap, swipe, wait_seconds, execute_macro_sequence, complete_session) to interact with the game screen. Do not just observe and explain what you would do; you must actually invoke the tools to perform actions on the screen!\n"
+                "For faster execution, if there are multiple standard actions needed to transition screens or menus quickly, prefer using the execute_macro_sequence tool."
             ),
         )
 
         async with Agent(config=config) as agent:
-            # Warm up prompt
-            startup_prompt = (
-                f"Begin playing the game now. You are simulating a player. The instructions are: '{instructions}'.\n"
-                "Please output your reasoning and execute your initial action sequence."
-            )
-            response = await agent.chat(startup_prompt)
-            logger.info(f"Agent startup response: {await response.text()}")
+
 
             for step in range(max_steps):
+                # 1. Check for cooperative cancellation
+                if is_stopped_callback and is_stopped_callback():
+                    logger.info(f"Play run {run_id} received stop/cancellation signal.")
+                    session_tools.session_completed = True
+                    session_tools.completion_reason = "Stopped by user request"
+                    run_config["status"] = "stopped"
+                    with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+                        json.dump(run_config, f, indent=2)
+                    logs_callback({"status": "failed", "message": "Play session stopped by user request."})
+                    break
+
                 if session_tools.session_completed:
                     logger.info("Session completed by agent request.")
                     break
 
+                # 2. Update status and capture screenshot
                 logs_callback(
                     {
                         "status": "playing",
-                        "message": f"Evaluating frame step {step + 1}/{max_steps}...",
+                        "state": "screenshotting",
+                        "step": step + 1,
+                        "max_steps": max_steps,
+                        "message": f"Step {step + 1}/{max_steps}: Capturing game screenshot...",
                     }
                 )
 
-                # Take visual screenshot
                 screenshot_filename = (
                     f"step_{step}_{int(datetime.utcnow().timestamp())}.png"
                 )
@@ -290,10 +380,11 @@ async def run_agent_play_loop(
                     logs_callback(
                         {
                             "status": "playing",
+                            "state": "waiting",
                             "message": "Warning: screenshot capture failed, retrying...",
                         }
                     )
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(1.0)
                     continue
 
                 # Convert to base64 for real-time frontend streaming
@@ -301,6 +392,18 @@ async def run_agent_play_loop(
                     base64_screenshot = base64.b64encode(image_file.read()).decode(
                         "utf-8"
                     )
+
+                # Stream the screenshot IMMEDIATELY to the frontend with state "thinking"
+                logs_callback(
+                    {
+                        "status": "playing",
+                        "state": "thinking",
+                        "step": step + 1,
+                        "max_steps": max_steps,
+                        "screenshot": base64_screenshot,
+                        "message": f"Step {step + 1}/{max_steps}: Evaluating frame and deciding inputs...",
+                    }
+                )
 
                 # Clear previous recorded actions to isolate this step's events
                 session_tools.recorded_actions = []
@@ -318,8 +421,11 @@ async def run_agent_play_loop(
                 thoughts = []
                 async for thought in agent_response.thoughts:
                     thoughts.append(thought)
+                
+                # Consuming the main text response is CRITICAL to trigger and complete tool execution in the SDK!
+                text_response = await agent_response.text()
                 reasoning = (
-                    "".join(thoughts) if thoughts else await agent_response.text()
+                    "".join(thoughts) if thoughts else text_response
                 )
 
                 # Fetch actions executed during the tool calls of this turn
@@ -330,7 +436,12 @@ async def run_agent_play_loop(
                     else "No actions performed (observing)"
                 )
 
-                # Create structured telemetry log event for timeseries
+                # Segment logcat logs dynamically for this step
+                current_logcat = fleet_manager.dump_logcat(device_id)
+                step_logs = current_logcat[last_logcat_len:]
+                last_logcat_len = len(current_logcat)
+
+                # Create structured telemetry log event
                 event_data = {
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "emulator_id": device_id,
@@ -338,17 +449,26 @@ async def run_agent_play_loop(
                     "package_name": package_name,
                     "step_index": step + 1,
                     "screenshot": base64_screenshot,
+                    "screenshot_path": f"/runs/{run_id}/{screenshot_filename}",
                     "agent_reasoning": reasoning,
                     "actions_taken": actions_taken,
                     "action_summary": action_summary,
-                    "logs": None,
+                    "logs": step_logs,
+                    "has_screenshot": True,
+                    "has_logs": bool(step_logs)
                 }
                 telemetry_collector.record_event(event_data)
+
+                # Persist step telemetry incrementally on disk
+                telemetry_events.append(event_data)
+                with open(os.path.join(run_dir, "telemetry_summary.json"), "w") as tf:
+                    json.dump(telemetry_events, tf, indent=2)
 
                 # Push real-time visual streaming update to dashboard
                 logs_callback(
                     {
                         "status": "playing",
+                        "state": "acting" if actions_taken else "waiting",
                         "step": step + 1,
                         "max_steps": max_steps,
                         "screenshot": base64_screenshot,
@@ -358,24 +478,39 @@ async def run_agent_play_loop(
                     }
                 )
 
-                # Short buffer between loops
-                await asyncio.sleep(2.0)
+                # Short dynamic buffer between loops
+                await asyncio.sleep(0.8)
 
         # Step 3: Session End Telemetry & Cleanups
         logs_callback(
-            {"status": "finishing", "message": "Stopping app and dumping logcats..."}
+            {"status": "finishing", "state": "waiting", "message": "Stopping app and dumping logcats..."}
         )
         fleet_manager.force_stop_app(device_id, package_name)
 
-        # Retrieve logs and send final completion event
+        # Stop background streamer and dump final logs
+        if log_task and not log_task.done():
+            log_task.cancel()
+            try:
+                await log_task
+            except asyncio.CancelledError:
+                pass
+
         logcat_data = fleet_manager.dump_logcat(device_id)
+        with open(logcat_filepath, "w") as lf:
+            lf.write(logcat_data)
+
+        # Update final run_config
+        is_stopped = run_config.get("status") == "stopped"
+        run_config["status"] = "stopped" if is_stopped else "completed"
+        with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+            json.dump(run_config, f, indent=2)
 
         final_event = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "emulator_id": device_id,
             "run_id": run_id,
             "package_name": package_name,
-            "step_index": 999,  # code for session end
+            "step_index": 999,  # session end
             "screenshot": "",
             "agent_reasoning": f"Session completed. Final Outcome: {session_tools.completion_reason or 'Max steps reached'}",
             "actions_taken": [],
@@ -386,33 +521,64 @@ async def run_agent_play_loop(
 
         logs_callback(
             {
-                "status": "completed",
-                "message": f"Successfully completed. Logs size: {len(logcat_data)} bytes.",
-                "logs": logcat_data[
-                    :5000
-                ],  # Send first 5000 characters to frontend log window
+                "status": "completed" if not is_stopped else "failed",
+                "message": f"Successfully completed. Logs size: {len(logcat_data)} bytes." if not is_stopped else "Play session stopped by user.",
+                "logs": logcat_data[:10000],
             }
         )
 
     except Exception as e:
         logger.error(f"Error running agent loop on {device_id}: {e}")
+        run_config["status"] = "failed"
+        import traceback
+        run_config["error"] = str(e)
+        run_config["traceback"] = traceback.format_exc()
+        with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+            json.dump(run_config, f, indent=2)
         logs_callback({"status": "failed", "message": f"Agent crashed: {str(e)}"})
+        
+        if log_task and not log_task.done():
+            log_task.cancel()
 
 
 async def run_mock_play_loop(
     device_id: str,
+    apk_path: str,
+    package_name: str,
+    instructions: str,
+    run_id: str,
     run_dir: str,
     session_tools: DeviceAgentTools,
     telemetry_collector: TelemetryCollector,
     logs_callback: Callable[[Dict[str, Any]], None],
     max_steps: int,
+    is_stopped_callback: Optional[Callable[[], bool]] = None,
 ):
-    """Fallback playback simulator if google-antigravity SDK python package is not fully initialized."""
+    """Fallback playback simulator with cancellation, config, and timeline support."""
     import random
+    import json
+
+    run_config = {
+        "run_id": run_id,
+        "device_id": device_id,
+        "apk_name": os.path.basename(apk_path),
+        "package_name": "com.unity.simulated_player",
+        "instructions": instructions,
+        "max_steps": max_steps,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "status": "playing"
+    }
+    with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    telemetry_events = []
+    last_logcat_len = 0
+    logcat_filepath = os.path.join(run_dir, "device_logcat.log")
 
     logs_callback(
         {
             "status": "playing",
+            "state": "thinking",
             "message": "Booted Player In Mock Agent Mode (ADB Telemetry Ingestion Active)",
         }
     )
@@ -444,83 +610,177 @@ async def run_mock_play_loop(
         },
     ]
 
-    for step in range(max_steps):
-        logs_callback(
-            {
-                "status": "playing",
-                "message": f"Evaluating frame step {step + 1}/{max_steps}...",
+    # Background log streamer for mock
+    async def mock_log_streamer():
+        try:
+            while not session_tools.session_completed:
+                logcat_data = session_tools.fleet_manager.dump_logcat(device_id)
+                with open(logcat_filepath, "w") as lf:
+                    lf.write(logcat_data)
+                logs_callback({
+                    "status": "playing",
+                    "logs_update": logcat_data,
+                })
+                await asyncio.sleep(5.0)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in mock log streamer: {e}")
+
+    log_task = asyncio.create_task(mock_log_streamer())
+
+    try:
+        # Keep the target device awake, wake up the screen, and dismiss keyguard
+        session_tools.fleet_manager.keep_device_awake(device_id)
+
+        for step in range(max_steps):
+            # Check for cancellation
+            if is_stopped_callback and is_stopped_callback():
+                logger.info(f"Mock run {run_id} received stop signal.")
+                session_tools.session_completed = True
+                session_tools.completion_reason = "Stopped by user request"
+                run_config["status"] = "stopped"
+                with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+                    json.dump(run_config, f, indent=2)
+                logs_callback({"status": "failed", "message": "Mock session stopped by user request."})
+                break
+
+            logs_callback(
+                {
+                    "status": "playing",
+                    "state": "screenshotting",
+                    "step": step + 1,
+                    "max_steps": max_steps,
+                    "message": f"Step {step + 1}/{max_steps}: Capturing visual frame...",
+                }
+            )
+
+            screenshot_filename = f"step_{step}_{int(datetime.utcnow().timestamp())}.png"
+            screenshot_path = os.path.join(run_dir, screenshot_filename)
+            session_tools.fleet_manager.take_screenshot(device_id, screenshot_path)
+
+            with open(screenshot_path, "rb") as img:
+                base64_screenshot = base64.b64encode(img.read()).decode("utf-8")
+
+            # Stream screenshot immediately
+            logs_callback(
+                {
+                    "status": "playing",
+                    "state": "thinking",
+                    "step": step + 1,
+                    "max_steps": max_steps,
+                    "screenshot": base64_screenshot,
+                    "message": f"Step {step + 1}/{max_steps}: Thinking about board strategy...",
+                }
+            )
+
+            await asyncio.sleep(1.0) # simulate gemini thinking (briefly)
+
+            session_tools.recorded_actions = []
+
+            # Pick a mock action
+            action_item = random.choice(mock_actions)
+            action_item["run"]()
+
+            actions_taken = session_tools.recorded_actions
+            action_summary = action_item["desc"]
+            reasoning = f"**Analyzing board state**\nVisual analysis detects gameplay frame. Decided action: {action_summary} to achieve instructions.\n\n**Action detail**\nExecuting relative input parameters dynamically."
+
+            # Segment mock logcat logs
+            current_logcat = session_tools.fleet_manager.dump_logcat(device_id)
+            step_logs = current_logcat[last_logcat_len:]
+            last_logcat_len = len(current_logcat)
+
+            event_data = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "emulator_id": device_id,
+                "run_id": run_id,
+                "package_name": "com.unity.simulated_player",
+                "step_index": step + 1,
+                "screenshot": base64_screenshot,
+                "screenshot_path": f"/runs/{run_id}/{screenshot_filename}",
+                "agent_reasoning": reasoning,
+                "actions_taken": actions_taken,
+                "action_summary": action_summary,
+                "logs": step_logs,
+                "has_screenshot": True,
+                "has_logs": bool(step_logs)
             }
+            telemetry_collector.record_event(event_data)
+
+            telemetry_events.append(event_data)
+            with open(os.path.join(run_dir, "telemetry_summary.json"), "w") as tf:
+                json.dump(telemetry_events, tf, indent=2)
+
+            logs_callback(
+                {
+                    "status": "playing",
+                    "state": "acting",
+                    "step": step + 1,
+                    "max_steps": max_steps,
+                    "screenshot": base64_screenshot,
+                    "reasoning": reasoning,
+                    "action": action_summary,
+                    "message": f"Step {step + 1}: {action_summary}",
+                }
+            )
+
+            await asyncio.sleep(1.0)
+
+        # Cleanups
+        logs_callback(
+            {"status": "finishing", "state": "waiting", "message": "Stopping app and dumping logcats..."}
         )
 
-        screenshot_path = os.path.join(
-            run_dir, f"step_{step}_{int(datetime.utcnow().timestamp())}.png"
-        )
-        session_tools.fleet_manager.take_screenshot(device_id, screenshot_path)
+        if log_task and not log_task.done():
+            log_task.cancel()
+            try:
+                await log_task
+            except asyncio.CancelledError:
+                pass
 
-        with open(screenshot_path, "rb") as img:
-            base64_screenshot = base64.b64encode(img.read()).decode("utf-8")
+        logcat_data = session_tools.fleet_manager.dump_logcat(device_id)
+        with open(logcat_filepath, "w") as lf:
+            lf.write(logcat_data)
 
-        session_tools.recorded_actions = []
+        # Update final run_config
+        is_stopped = run_config.get("status") == "stopped"
+        run_config["status"] = "stopped" if is_stopped else "completed"
+        with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+            json.dump(run_config, f, indent=2)
 
-        # Pick a mock action
-        action_item = random.choice(mock_actions)
-        action_item["run"]()
-
-        actions_taken = session_tools.recorded_actions
-        action_summary = action_item["desc"]
-        reasoning = f"Visual analysis detects gameplay frame. Decided action: {action_summary} to achieve instructions."
-
-        event_data = {
+        final_event = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "emulator_id": device_id,
-            "run_id": session_tools.device_id,
+            "run_id": run_id,
             "package_name": "com.unity.simulated_player",
-            "step_index": step + 1,
-            "screenshot": base64_screenshot,
-            "agent_reasoning": reasoning,
-            "actions_taken": actions_taken,
-            "action_summary": action_summary,
-            "logs": None,
+            "step_index": 999,
+            "screenshot": "",
+            "agent_reasoning": "Mock gameplay simulation completed successfully.",
+            "actions_taken": [],
+            "action_summary": "Session terminated.",
+            "logs": logcat_data,
         }
-        telemetry_collector.record_event(event_data)
+        telemetry_collector.record_event(final_event)
 
         logs_callback(
             {
-                "status": "playing",
-                "step": step + 1,
-                "max_steps": max_steps,
-                "screenshot": base64_screenshot,
-                "reasoning": reasoning,
-                "action": action_summary,
-                "message": f"Step {step + 1}: {action_summary}",
+                "status": "completed" if not is_stopped else "failed",
+                "message": "Completed. Logcat size: " + str(len(logcat_data)) + " bytes." if not is_stopped else "Mock session stopped by user.",
+                "logs": logcat_data[:10000],
             }
         )
 
-        await asyncio.sleep(3.0)
+    except Exception as e:
+        logger.error(f"Error in mock agent loop: {e}")
+        run_config["status"] = "failed"
+        import traceback
+        run_config["error"] = str(e)
+        run_config["traceback"] = traceback.format_exc()
+        with open(os.path.join(run_dir, "run_config.json"), "w") as f:
+            json.dump(run_config, f, indent=2)
+        logs_callback({"status": "failed", "message": f"Mock crashed: {str(e)}"})
+        
+        if log_task and not log_task.done():
+            log_task.cancel()
 
-    logs_callback(
-        {"status": "finishing", "message": "Stopping app and dumping logcats..."}
-    )
-    logcat_data = session_tools.fleet_manager.dump_logcat(device_id)
-
-    final_event = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "emulator_id": device_id,
-        "run_id": session_tools.device_id,
-        "package_name": "com.unity.simulated_player",
-        "step_index": 999,
-        "screenshot": "",
-        "agent_reasoning": "Mock gameplay simulation completed successfully.",
-        "actions_taken": [],
-        "action_summary": "Session terminated.",
-        "logs": logcat_data,
-    }
-    telemetry_collector.record_event(final_event)
-
-    logs_callback(
-        {
-            "status": "completed",
-            "message": f"Completed. Logcat size: {len(logcat_data)} bytes.",
-            "logs": logcat_data[:5000],
-        }
-    )
