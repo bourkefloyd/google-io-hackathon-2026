@@ -63,7 +63,7 @@ run: ## Launch the FastAPI local backend server with automatic live reload on po
 		lsof -i :8000 -t | xargs kill -9 2>/dev/null || true; \
 		sleep 1; \
 	fi
-	@PYTHONPATH=backend .venv/bin/python3 -m uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
+	@PYTHONPATH=backend .venv/bin/python3 -m uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend
 
 status: ## Run dynamic system diagnostics, verify ADB connections, and check GCP telemetry configs
 	@echo -e "$(MAGENTA)=========================================$(RESET)"

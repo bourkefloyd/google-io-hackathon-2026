@@ -57,6 +57,29 @@ stopped_runs = set()
 active_runs_devices: Dict[str, str] = {}
 
 
+@app.on_event("startup")
+def cleanup_orphaned_runs():
+    """On startup, scan the runs directory and mark any orphaned run with status 'playing' as 'stopped'."""
+    import json
+    runs_dir = "runs"
+    if os.path.exists(runs_dir):
+        for d in os.listdir(runs_dir):
+            d_path = os.path.join(runs_dir, d)
+            if os.path.isdir(d_path):
+                config_path = os.path.join(d_path, "run_config.json")
+                if os.path.exists(config_path):
+                    try:
+                        with open(config_path, "r") as f:
+                            config_data = json.load(f)
+                        if config_data.get("status") == "playing":
+                            logger.info(f"Cleaning up orphaned playing run on startup: {d}")
+                            config_data["status"] = "stopped"
+                            with open(config_path, "w") as f:
+                                json.dump(config_data, f, indent=2)
+                    except Exception as e:
+                        logger.error(f"Failed to cleanup orphaned run {d}: {e}")
+
+
 class PlayRequest(BaseModel):
     device_id: str
     apk_name: str
@@ -132,6 +155,10 @@ async def run_play_task_wrapper(
     finally:
         if run_id in active_runs_devices:
             del active_runs_devices[run_id]
+        if run_id in active_queues:
+            del active_queues[run_id]
+        if run_id in stopped_runs:
+            stopped_runs.remove(run_id)
 
 
 @app.post("/api/play")
@@ -200,7 +227,7 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
 def stop_play_run(run_id: str):
     """Stops an active autonomous play run, with force-stop fallback for dead on-disk runs."""
     # Check if active in memory
-    if run_id in active_queues:
+    if run_id in active_runs_devices:
         stopped_runs.add(run_id)
         logger.info(f"Stop signal sent to active run session: {run_id}")
         return {"status": "success", "message": "Stop signal sent to active run session."}
@@ -249,6 +276,9 @@ def stop_play_run(run_id: str):
 
                 logger.info(f"Force-stopped orphaned/dead run session on disk: {run_id}")
                 return {"status": "success", "message": "Force-stopped dead/orphaned run on disk."}
+            else:
+                # Idempotency: if already stopped/completed, return successful status!
+                return {"status": "success", "message": f"Run session is already {config_data.get('status')}."}
         except Exception as e:
             logger.error(f"Failed to force-stop orphaned run {run_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to force-stop: {str(e)}")
@@ -327,6 +357,10 @@ def get_run_details(run_id: str):
 @app.get("/api/events")
 async def stream_run_events(run_id: str):
     """SSE endpoint to stream real-time logs, screenshots, and reasoning updates."""
+    # Recreate event queue if the run is active in memory but queue was cleaned up or not initialized yet
+    if run_id in active_runs_devices and run_id not in active_queues:
+        active_queues[run_id] = asyncio.Queue()
+
     if run_id not in active_queues:
         raise HTTPException(
             status_code=404, detail="Run session not active or completed."
@@ -346,12 +380,7 @@ async def stream_run_events(run_id: str):
                     break
         except asyncio.CancelledError:
             logger.info(f"SSE client disconnected from run {run_id}")
-        finally:
-            # Cleanup queue and stopped run status
-            if run_id in active_queues:
-                del active_queues[run_id]
-            if run_id in stopped_runs:
-                stopped_runs.remove(run_id)
+        # Note: Do not clean up here; cleanup is now handled in run_play_task_wrapper's finally block.
 
     def import_json_dumps(d):
         import json

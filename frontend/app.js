@@ -393,7 +393,10 @@ elLaunchBtn.addEventListener("click", async () => {
 // Stop Running Fleet Play
 elStopBtn.addEventListener("click", async () => {
     const runId = selectedRunId;
-    if (!runId || runId === "none" || !runsData[runId] || runsData[runId].config.status !== "playing") return;
+    if (!runId || runId === "none" || !runsData[runId]) return;
+
+    const status = runsData[runId].config.status;
+    if (status !== "playing" && status !== "starting") return;
 
     elStopBtn.disabled = true;
     elStopBtn.querySelector(".btn-text").innerText = "Stopping...";
@@ -470,13 +473,22 @@ function connectSSEForRun(runId) {
         es.close();
         delete activeEventSources[runId];
         
-        if (runsData[runId] && runsData[runId].config.status === "playing") {
-            runsData[runId].config.status = "failed";
-            listHistoricRuns();
-            if (selectedRunId === runId) {
-                renderTimeline(runsData[runId].events, "failed");
+        // Wait briefly and verify if the run is still active on the backend before failing it
+        setTimeout(async () => {
+            await listHistoricRuns();
+            if (runsData[runId] && runsData[runId].config.status === "playing") {
+                console.log(`Run ${runId} is still active on backend. Reconnecting SSE...`);
+                connectSSEForRun(runId);
+            } else {
+                // If it is no longer playing and wasn't marked completed/stopped, set to failed
+                if (runsData[runId] && runsData[runId].config.status !== "completed" && runsData[runId].config.status !== "stopped") {
+                    runsData[runId].config.status = "failed";
+                    if (selectedRunId === runId) {
+                        renderTimeline(runsData[runId].events, "failed");
+                    }
+                }
             }
-        }
+        }, 1000);
     };
 }
 
@@ -879,9 +891,9 @@ function renderRunsListCards(runs) {
     // Filter runs based on Active vs Historic toggle filter
     const filteredRuns = runs.filter(r => {
         if (currentFilter === "active") {
-            return r.status === "playing";
+            return r.status === "playing" || r.status === "starting";
         } else {
-            return r.status !== "playing";
+            return r.status !== "playing" && r.status !== "starting";
         }
     });
 
@@ -957,23 +969,23 @@ async function selectRun(runId) {
         return;
     }
 
-    const isPlaying = run.config.status === "playing";
+    const isPlaying = run.config.status === "playing" || run.config.status === "starting";
 
-    // If historic/completed run and events are not loaded yet
-    if (run.events.length === 0 && !isPlaying) {
+    // If events are not loaded yet, fetch them from backend (supports history recovery on page refresh)
+    if (run.events.length === 0) {
         if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Loading...";
-        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Loading historic run details...";
+        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Loading run details...";
         
         try {
             const res = await fetch(`/api/runs/${runId}`);
             if (res.ok) {
                 const data = await res.json();
                 run.events = data.telemetry || [];
-                run.logs = data.logs || "No logs were captured for this past run.";
+                run.logs = data.logs || "No logs were captured for this run.";
                 runsData[runId] = run;
             }
         } catch (e) {
-            console.error(`Failed to load details for historic run ${runId}`, e);
+            console.error(`Failed to load details for run ${runId}`, e);
         }
     }
 
@@ -991,6 +1003,12 @@ async function selectRun(runId) {
         elStopBtn.disabled = false;
         elStopBtn.classList.remove("hidden");
         elStopBtn.querySelector(".btn-text").innerText = "Stop Run";
+
+        // Automatically connect to SSE stream if not connected yet
+        if (!activeEventSources[runId]) {
+            console.log(`Connecting to SSE stream for active run ${runId}`);
+            connectSSEForRun(runId);
+        }
     } else {
         elStopBtn.disabled = true;
         elStopBtn.classList.add("hidden");
