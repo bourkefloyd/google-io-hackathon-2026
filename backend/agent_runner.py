@@ -20,6 +20,35 @@ except ImportError:
 logger = logging.getLogger("agent_runner")
 
 
+def resize_screenshot(input_path: str, output_path: str, max_dimension: int = 384) -> bool:
+    """Resizes the screenshot at input_path preserving the aspect ratio
+    such that its maximum dimension is max_dimension. Saves the result to output_path.
+    """
+    try:
+        from PIL import Image as PILImage
+        with PILImage.open(input_path) as img:
+            width, height = img.size
+            if max(width, height) <= max_dimension:
+                img.save(output_path, "PNG")
+                return True
+            
+            if width > height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            
+            resample_filter = getattr(PILImage, "Resampling", PILImage).LANCZOS
+            resized_img = img.resize((new_width, new_height), resample_filter)
+            resized_img.save(output_path, "PNG")
+            logger.info(f"Generated LLM-optimized screenshot: resized from {width}x{height} to {new_width}x{new_height}")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to resize screenshot: {e}")
+        return False
+
+
 class DeviceAgentTools:
     """Bounded tools registered with the Google Antigravity Agent per device session."""
 
@@ -346,6 +375,9 @@ async def run_agent_play_loop(
 
 
             for step in range(max_steps):
+                step_start_time = datetime.utcnow()
+                step_start_logcat_len = len(fleet_manager.dump_logcat(device_id))
+
                 # 1. Check for cooperative cancellation
                 if is_stopped_callback and is_stopped_callback():
                     logger.info(f"Play run {run_id} received stop/cancellation signal.")
@@ -387,11 +419,23 @@ async def run_agent_play_loop(
                     await asyncio.sleep(1.0)
                     continue
 
-                # Convert to base64 for real-time frontend streaming
+                # Generate LLM resized screenshot
+                screenshot_llm_filename = screenshot_filename.replace(".png", "_llm.png")
+                screenshot_llm_path = os.path.join(run_dir, screenshot_llm_filename)
+                resize_screenshot(screenshot_path, screenshot_llm_path, max_dimension=384)
+
+                # Convert both to base64 for real-time frontend streaming
                 with open(screenshot_path, "rb") as image_file:
                     base64_screenshot = base64.b64encode(image_file.read()).decode(
                         "utf-8"
                     )
+
+                base64_screenshot_llm = ""
+                if os.path.exists(screenshot_llm_path):
+                    with open(screenshot_llm_path, "rb") as image_file:
+                        base64_screenshot_llm = base64.b64encode(image_file.read()).decode(
+                            "utf-8"
+                        )
 
                 # Stream the screenshot IMMEDIATELY to the frontend with state "thinking"
                 logs_callback(
@@ -401,6 +445,7 @@ async def run_agent_play_loop(
                         "step": step + 1,
                         "max_steps": max_steps,
                         "screenshot": base64_screenshot,
+                        "screenshot_llm": base64_screenshot_llm,
                         "message": f"Step {step + 1}/{max_steps}: Evaluating frame and deciding inputs...",
                     }
                 )
@@ -408,8 +453,8 @@ async def run_agent_play_loop(
                 # Clear previous recorded actions to isolate this step's events
                 session_tools.recorded_actions = []
 
-                # Send screenshot to agent to evaluate next moves
-                image = Image.from_file(screenshot_path)
+                # Send RESIZED screenshot to agent to evaluate next moves (reduces visual token cost & latency)
+                image = Image.from_file(screenshot_llm_path)
                 agent_response = await agent.chat(
                     [
                         f"Step {step + 1}: Here is the current screen frame. Decide and execute actions.",
@@ -424,9 +469,16 @@ async def run_agent_play_loop(
                 
                 # Consuming the main text response is CRITICAL to trigger and complete tool execution in the SDK!
                 text_response = await agent_response.text()
-                reasoning = (
-                    "".join(thoughts) if thoughts else text_response
-                )
+                
+                thought_str = "".join(thoughts).strip()
+                text_str = text_response.strip()
+
+                if thought_str and text_str:
+                    reasoning = f"**Thinking Process**\n{thought_str}\n\n**Action Decision**\n{text_str}"
+                elif thought_str:
+                    reasoning = f"**Thinking Process**\n{thought_str}"
+                else:
+                    reasoning = text_str if text_str else "No reasoning available."
 
                 # Fetch actions executed during the tool calls of this turn
                 actions_taken = session_tools.recorded_actions
@@ -437,19 +489,25 @@ async def run_agent_play_loop(
                 )
 
                 # Segment logcat logs dynamically for this step
-                current_logcat = fleet_manager.dump_logcat(device_id)
-                step_logs = current_logcat[last_logcat_len:]
-                last_logcat_len = len(current_logcat)
+                step_end_time = datetime.utcnow()
+                step_duration = (step_end_time - step_start_time).total_seconds()
 
-                # Create structured telemetry log event
+                current_logcat = fleet_manager.dump_logcat(device_id)
+                step_logs = current_logcat[step_start_logcat_len:]
+
+                # Create structured telemetry log event with both high-res and low-res versions
                 event_data = {
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "emulator_id": device_id,
                     "run_id": run_id,
                     "package_name": package_name,
                     "step_index": step + 1,
+                    "start_time": step_start_time.isoformat() + "Z",
+                    "duration": round(step_duration, 2),
                     "screenshot": base64_screenshot,
                     "screenshot_path": f"/runs/{run_id}/{screenshot_filename}",
+                    "screenshot_llm": base64_screenshot_llm,
+                    "screenshot_llm_path": f"/runs/{run_id}/{screenshot_llm_filename}",
                     "agent_reasoning": reasoning,
                     "actions_taken": actions_taken,
                     "action_summary": action_summary,
@@ -471,7 +529,10 @@ async def run_agent_play_loop(
                         "state": "acting" if actions_taken else "waiting",
                         "step": step + 1,
                         "max_steps": max_steps,
+                        "start_time": step_start_time.isoformat() + "Z",
+                        "duration": round(step_duration, 2),
                         "screenshot": base64_screenshot,
+                        "screenshot_llm": base64_screenshot_llm,
                         "reasoning": reasoning,
                         "action": action_summary,
                         "message": f"Step {step + 1}: {action_summary}",
@@ -634,6 +695,9 @@ async def run_mock_play_loop(
         session_tools.fleet_manager.keep_device_awake(device_id)
 
         for step in range(max_steps):
+            step_start_time = datetime.utcnow()
+            step_start_logcat_len = len(session_tools.fleet_manager.dump_logcat(device_id))
+
             # Check for cancellation
             if is_stopped_callback and is_stopped_callback():
                 logger.info(f"Mock run {run_id} received stop signal.")
@@ -659,8 +723,18 @@ async def run_mock_play_loop(
             screenshot_path = os.path.join(run_dir, screenshot_filename)
             session_tools.fleet_manager.take_screenshot(device_id, screenshot_path)
 
+            # Generate LLM resized screenshot
+            screenshot_llm_filename = screenshot_filename.replace(".png", "_llm.png")
+            screenshot_llm_path = os.path.join(run_dir, screenshot_llm_filename)
+            resize_screenshot(screenshot_path, screenshot_llm_path, max_dimension=384)
+
             with open(screenshot_path, "rb") as img:
                 base64_screenshot = base64.b64encode(img.read()).decode("utf-8")
+
+            base64_screenshot_llm = ""
+            if os.path.exists(screenshot_llm_path):
+                with open(screenshot_llm_path, "rb") as img:
+                    base64_screenshot_llm = base64.b64encode(img.read()).decode("utf-8")
 
             # Stream screenshot immediately
             logs_callback(
@@ -670,6 +744,7 @@ async def run_mock_play_loop(
                     "step": step + 1,
                     "max_steps": max_steps,
                     "screenshot": base64_screenshot,
+                    "screenshot_llm": base64_screenshot_llm,
                     "message": f"Step {step + 1}/{max_steps}: Thinking about board strategy...",
                 }
             )
@@ -687,9 +762,11 @@ async def run_mock_play_loop(
             reasoning = f"**Analyzing board state**\nVisual analysis detects gameplay frame. Decided action: {action_summary} to achieve instructions.\n\n**Action detail**\nExecuting relative input parameters dynamically."
 
             # Segment mock logcat logs
+            step_end_time = datetime.utcnow()
+            step_duration = (step_end_time - step_start_time).total_seconds()
+
             current_logcat = session_tools.fleet_manager.dump_logcat(device_id)
-            step_logs = current_logcat[last_logcat_len:]
-            last_logcat_len = len(current_logcat)
+            step_logs = current_logcat[step_start_logcat_len:]
 
             event_data = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -697,8 +774,12 @@ async def run_mock_play_loop(
                 "run_id": run_id,
                 "package_name": "com.unity.simulated_player",
                 "step_index": step + 1,
+                "start_time": step_start_time.isoformat() + "Z",
+                "duration": round(step_duration, 2),
                 "screenshot": base64_screenshot,
                 "screenshot_path": f"/runs/{run_id}/{screenshot_filename}",
+                "screenshot_llm": base64_screenshot_llm,
+                "screenshot_llm_path": f"/runs/{run_id}/{screenshot_llm_filename}",
                 "agent_reasoning": reasoning,
                 "actions_taken": actions_taken,
                 "action_summary": action_summary,
@@ -718,7 +799,10 @@ async def run_mock_play_loop(
                     "state": "acting",
                     "step": step + 1,
                     "max_steps": max_steps,
+                    "start_time": step_start_time.isoformat() + "Z",
+                    "duration": round(step_duration, 2),
                     "screenshot": base64_screenshot,
+                    "screenshot_llm": base64_screenshot_llm,
                     "reasoning": reasoning,
                     "action": action_summary,
                     "message": f"Step {step + 1}: {action_summary}",

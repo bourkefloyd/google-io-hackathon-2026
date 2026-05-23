@@ -48,12 +48,12 @@ body {
 
 /* App Layout Structure */
 .app-container {
-    max-width: 1440px;
+    max-width: 1800px;
     margin: 0 auto;
-    padding: 1.5rem;
+    padding: 0.5rem 1rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0.5rem;
     min-height: 100vh;
 }
 
@@ -140,45 +140,70 @@ body {
     100% { transform: scale(2.5); opacity: 0; }
 }
 
-/* Dashboard Grid Layout */
+/* Dashboard Grid Layout (Widescreen 3-Column Cockpit) */
 .dashboard-grid {
     display: grid;
-    grid-template-columns: 380px 1fr;
-    gap: 1.5rem;
-    align-items: start;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.75rem;
+    align-items: stretch;
+    min-height: calc(100vh - 80px);
 }
 
-@media (max-width: 1024px) {
+.left-panel, .middle-panel, .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-height: 100%;
+}
+
+.right-panel {
+    height: 100%;
+}
+
+@media (max-width: 1200px) {
     .dashboard-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
+    }
+    .right-panel {
+        grid-column: span 2;
     }
 }
 
-/* Glassmorphic Cards */
+@media (max-width: 800px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .right-panel {
+        grid-column: span 1;
+    }
+}
+
+/* Liquid-Glass Premium Card Aesthetics */
 .glass-card {
-    background: var(--bg-card);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-color);
+    background: linear-gradient(135deg, rgba(20, 12, 38, 0.45) 0%, rgba(10, 5, 20, 0.6) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0px rgba(255, 255, 255, 0.1);
     overflow: hidden;
     transition: var(--transition-smooth);
 }
 
 .glass-card:hover {
-    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.3), 0 0 20px var(--accent-glow);
-    border-color: hsla(250, 50%, 50%, 0.25);
+    box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.45), 0 0 24px rgba(115, 103, 240, 0.25), inset 0 1px 0px rgba(255, 255, 255, 0.15);
+    border-color: rgba(115, 103, 240, 0.4);
+    transform: translateY(-2px);
 }
 
 .card-header {
-    padding: 1.2rem 1.5rem;
+    padding: 0.6rem 0.85rem;
     border-bottom: 1px solid var(--border-color);
     background: hsla(220, 20%, 8%, 0.3);
 }
 
 .card-header h2 {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     color: var(--text-main);
     display: flex;
@@ -187,12 +212,12 @@ body {
 }
 
 .card-content {
-    padding: 1.5rem;
+    padding: 0.75rem 0.85rem;
 }
 
 /* Form Styles */
 .form-group {
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.65rem;
 }
 
 .form-group label {
@@ -237,8 +262,8 @@ input[type="text"]:focus, select:focus, textarea:focus {
 /* Custom APK Upload Area */
 .upload-dropzone {
     border: 2px dashed var(--border-color);
-    border-radius: 12px;
-    padding: 1.5rem;
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
     text-align: center;
     cursor: pointer;
     background-color: hsla(220, 20%, 8%, 0.3);
@@ -251,13 +276,14 @@ input[type="text"]:focus, select:focus, textarea:focus {
 }
 
 .upload-icon {
-    font-size: 2rem;
-    display: block;
-    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.4rem;
 }
 
 .upload-text {
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
 }
 
@@ -468,7 +494,7 @@ input[type="range"] {
 .emulator-viewport {
     width: 100%;
     aspect-ratio: 9 / 16;
-    max-height: 550px;
+    max-height: 420px;
     margin: 0 auto;
     background-color: hsl(220, 24%, 4%);
     border-radius: 12px;
@@ -581,9 +607,20 @@ input[type="range"] {
     word-break: break-all;
 }
 
-/* Bottom Panel: Telemetry Events & Logcats */
+/* Right Panel Cockpit Combined Tab card */
 .logs-card {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    flex-grow: 1;
+}
+
+.logs-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .logs-header {
@@ -621,17 +658,21 @@ input[type="range"] {
 
 .tab-panel {
     display: none;
-    padding-top: 1rem;
+    padding-top: 0.5rem;
+    flex-direction: column;
+    flex-grow: 1;
+    min-height: 0;
 }
 
 .tab-panel.active {
-    display: block;
+    display: flex;
 }
 
 /* Telemetry Event Table */
 .table-scroll-container {
-    max-height: 250px;
+    max-height: 320px;
     overflow-y: auto;
+    overflow-x: auto;
     border: 1px solid var(--border-color);
     border-radius: 8px;
 }
@@ -639,7 +680,7 @@ input[type="range"] {
 .telemetry-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     text-align: left;
 }
 
@@ -647,16 +688,18 @@ input[type="range"] {
     background-color: hsla(220, 20%, 8%, 0.8);
     color: var(--text-muted);
     font-weight: 600;
-    padding: 0.6rem 0.8rem;
+    padding: 0.4rem 0.6rem;
     border-bottom: 1px solid var(--border-color);
     position: sticky;
     top: 0;
+    white-space: nowrap;
 }
 
 .telemetry-table td {
-    padding: 0.6rem 0.8rem;
+    padding: 0.4rem 0.6rem;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-main);
+    white-space: nowrap;
 }
 
 .telemetry-table tr:hover {
@@ -700,7 +743,7 @@ input[type="range"] {
     font-family: var(--font-mono);
     font-size: 0.75rem;
     color: var(--text-muted);
-    max-height: 230px;
+    max-height: 380px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
@@ -887,179 +930,67 @@ input[type="range"] {
 }
 
 /* 4. Horizontal Clickable Step Timeline */
-.timeline-section {
+/* 4. Compact Timeline Media Scrubber */
+.compact-timeline-container {
     width: 100%;
-    background-color: hsla(220, 20%, 8%, 0.4);
+    background: linear-gradient(135deg, rgba(20, 12, 38, 0.45) 0%, rgba(10, 5, 20, 0.6) 100%);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 0.8rem 1rem;
+    border-radius: 12px;
+    padding: 0.6rem 0.85rem;
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.5rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
-.timeline-meta-row {
+.timeline-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.timeline-slider {
+    flex: 1;
+    accent-color: var(--primary);
+    background: var(--border-color);
+    height: 6px;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.timeline-slider:hover:not(:disabled) {
+    background: rgba(115, 103, 240, 0.2);
+    box-shadow: 0 0 8px rgba(115, 103, 240, 0.15);
+}
+
+.timeline-info-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-}
-
-.timeline-title {
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.timeline-step-info {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
+}
+
+.timeline-step-label {
     color: var(--secondary);
     background-color: hsla(200, 75%, 48%, 0.12);
     padding: 0.15rem 0.5rem;
     border-radius: 6px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
 
-.timeline-track-container {
-    width: 100%;
-    overflow-x: auto;
-    padding: 0.6rem 0.2rem 1rem 0.2rem;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-color) transparent;
-}
-
-.timeline-track-container::-webkit-scrollbar {
-    height: 4px;
-}
-.timeline-track-container::-webkit-scrollbar-thumb {
-    background-color: var(--border-color);
-    border-radius: 2px;
-}
-
-.timeline-track {
-    display: flex;
-    align-items: center;
-    min-width: 100%;
-    position: relative;
-    padding: 0 0.5rem;
-}
-
-.timeline-empty-msg {
-    font-size: 0.75rem;
-    color: var(--text-dimmed);
-    text-align: center;
-    width: 100%;
-    font-style: italic;
-    padding: 0.2rem 0;
-}
-
-/* Timeline Step Nodes */
-.timeline-node {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    position: relative;
-    cursor: pointer;
-    z-index: 2;
-    transition: var(--transition-smooth);
-    user-select: none;
-}
-
-.timeline-node:hover {
-    transform: scale(1.15);
-}
-
-.timeline-connector {
-    flex-grow: 1;
-    height: 3px;
-    background-color: var(--border-color);
-    min-width: 40px;
-    max-width: 80px;
-    position: relative;
-    z-index: 1;
-    margin: 0 -4px;
-    transition: var(--transition-smooth);
-}
-
-.timeline-connector.completed {
-    background-color: var(--secondary);
-}
-
-.node-dot {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background-color: var(--bg-dark);
-    border: 3px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: var(--transition-smooth);
-    position: relative;
-}
-
-.node-dot::after {
-    content: '';
-    position: absolute;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background-color: transparent;
-    transition: var(--transition-smooth);
-}
-
-/* Timeline Node States */
-.timeline-node.completed .node-dot {
-    border-color: var(--secondary);
-}
-.timeline-node.completed .node-dot::after {
-    background-color: var(--secondary);
-}
-
-.timeline-node.active .node-dot {
-    border-color: var(--warning);
-    box-shadow: 0 0 10px var(--warning);
-}
-.timeline-node.active .node-dot::after {
-    background-color: var(--warning);
-    animation: pingNode 1.5s infinite;
-}
-
-.timeline-node.selected .node-dot {
-    border-color: #fff;
-    background-color: var(--primary);
-    box-shadow: 0 0 12px var(--primary-glow);
-}
-.timeline-node.selected .node-dot::after {
-    background-color: #fff;
-}
-
-.timeline-node.failed .node-dot {
-    border-color: var(--danger);
-}
-.timeline-node.failed .node-dot::after {
-    background-color: var(--danger);
-}
-
-@keyframes pingNode {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(2); opacity: 0; }
-}
-
-.node-label {
-    font-size: 0.65rem;
-    font-weight: 700;
+.timeline-status-desc {
     color: var(--text-muted);
-    margin-top: 0.4rem;
-    position: absolute;
-    top: 18px;
+    font-weight: 500;
+    max-width: 70%;
     white-space: nowrap;
-    transition: var(--transition-smooth);
-}
-
-.timeline-node.selected .node-label {
-    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
 }
 
 /* 5. Collapsible Reasoning Cards */
@@ -1125,12 +1056,6 @@ input[type="range"] {
 }
 
 /* Timeline Navigation Buttons styling */
-.timeline-navigation-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
 .btn-timeline-nav {
     padding: 0.2rem 0.6rem;
     font-size: 0.75rem;
@@ -1159,9 +1084,166 @@ input[type="range"] {
     cursor: not-allowed;
 }
 
-.timeline-meta-left {
+/* Custom Scrollbar for Thoughts Box and Flex Grow support */
+.thoughts-box {
+    font-size: 0.88rem;
+    color: var(--text-main);
+    font-style: italic;
+    line-height: 1.6;
+    max-height: none !important;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+    flex-grow: 1;
+    height: 100%;
+    min-height: 0;
+}
+
+.thoughts-box::-webkit-scrollbar {
+    width: 4px;
+}
+
+.thoughts-box::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+.flex-grow-card {
+    flex-grow: 1;
+}
+
+.table-scroll-container {
+    max-height: none !important;
+    flex-grow: 1;
+    height: 100%;
+    min-height: 0;
+}
+
+.terminal-container {
+    flex-grow: 1;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.terminal-log {
+    max-height: none !important;
+    flex-grow: 1;
+    height: 100%;
+    min-height: 0;
+}
+
+.select-session-content {
+    padding: 1rem 1.5rem !important;
+}
+
+.full-width {
+    width: 100%;
+}
+
+/* Premium Responsive Dual Viewports Cockpit */
+.preview-layouts-container {
+    width: 100%;
+}
+
+.dual-viewports {
+    display: flex;
+    justify-content: center;
+    gap: 1.25rem;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.viewport-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    max-width: 380px;
+}
+
+/* Floating Premium Image Containers */
+.image-container-full {
+    position: relative;
+    display: inline-block;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    background-color: transparent;
+    transition: var(--transition-smooth);
+}
+
+.image-container-full:hover {
+    border-color: rgba(115, 103, 240, 0.4);
+    box-shadow: 0 12px 48px rgba(115, 103, 240, 0.25);
+    transform: scale(1.01);
+}
+
+.raw-screen-image {
+    display: block;
+    height: 420px;
+    width: auto;
+    object-fit: contain;
+}
+
+.image-container-llm {
+    position: relative;
+    display: inline-block;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    background-color: transparent;
+    transition: var(--transition-smooth);
+    margin-top: auto;
+    margin-bottom: auto;
+}
+
+.image-container-llm:hover {
+    border-color: rgba(115, 103, 240, 0.3);
+    box-shadow: 0 8px 24px rgba(115, 103, 240, 0.18);
+    transform: scale(1.02);
+}
+
+.raw-screen-image-llm {
+    display: block;
+    width: auto;
+    object-fit: contain;
+}
+
+.viewport-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.75px;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.35rem;
+    padding: 0.3rem 0.75rem;
+    background: hsla(220, 20%, 8%, 0.5);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: var(--transition-smooth);
 }
+
+.viewport-wrapper:hover .viewport-title {
+    color: var(--primary-hover);
+    border-color: rgba(115, 103, 240, 0.3);
+    box-shadow: 0 0 12px rgba(115, 103, 240, 0.15);
+}
+
+@media (max-width: 700px) {
+    .dual-viewports {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+}
+
 

@@ -21,13 +21,6 @@
                     <p>Simulated Player Ingestion & Telemetry</p>
                 </div>
             </div>
-            <!-- Central Play Session selector -->
-            <div class="session-selector-group">
-                <label for="run-selector">📂 Select Session:</label>
-                <select id="run-selector" class="glass-select">
-                    <option value="active">🟢 Active Play Session</option>
-                </select>
-            </div>
             <div class="system-status">
                 <div class="status-indicator online" id="server-status">
                     <span class="indicator-dot"></span>
@@ -36,10 +29,22 @@
             </div>
         </header>
 
-        <!-- Main Dashboard Content Grid -->
+        <!-- Main Dashboard 3-Column Content Grid -->
         <main class="dashboard-grid">
-            <!-- Left Panel: Configurations and Fleet Management -->
+            <!-- Left Column: Configurations and Fleet Management -->
             <section class="left-panel">
+                <!-- Session Selection Card -->
+                <div class="dashboard-card glass-card">
+                    <div class="card-header">
+                        <h2>📂 Select Session</h2>
+                    </div>
+                    <div class="card-content select-session-content">
+                        <select id="run-selector" class="glass-select full-width">
+                            <option value="active">🟢 Active Play Session</option>
+                        </select>
+                    </div>
+                </div>
+
                 <!-- Config Card -->
                 <div class="dashboard-card glass-card">
                     <div class="card-header">
@@ -123,8 +128,8 @@
                 </div>
             </section>
 
-            <!-- Right Panel: Live Replay and AI Reasoning -->
-            <section class="right-panel">
+            <!-- Middle Column: Live Replay & Timeline Scrub -->
+            <section class="middle-panel">
                 <div class="dashboard-card glass-card visual-card">
                     <div class="card-header">
                         <div class="header-with-badge">
@@ -136,42 +141,41 @@
                         </div>
                     </div>
                     <div class="card-content visual-content">
-                        <!-- Live Emulator Viewport Container -->
-                        <div class="emulator-viewport" id="viewport-container">
+                        <!-- Dual Replay and LLM Preview Viewports -->
+                        <div class="preview-layouts-container">
                             <div class="viewport-placeholder" id="viewport-placeholder">
                                 <span class="play-icon">🎬</span>
                                 <p>Replay stream is idle</p>
                                 <small>Telemetry screen grabs will render here in real-time</small>
                             </div>
-                            <!-- Relative Visual Overlays (Tap Dots / Swipe Vectors) -->
-                            <img src="" id="screen-grab" class="screen-image hidden" alt="Emulator Screenshot">
-                            <div class="coordinate-overlay" id="coordinate-overlay"></div>
-                        </div>
-
-                        <!-- Horizontal Clickable Step Timeline -->
-                        <div class="timeline-section">
-                            <div class="timeline-meta-row">
-                                <div class="timeline-meta-left">
-                                    <span class="timeline-title">📍 Step Timeline</span>
-                                    <span id="timeline-step-info" class="timeline-step-info">Idle</span>
+                            
+                            <div class="dual-viewports hidden" id="dual-viewports">
+                                <div class="viewport-wrapper">
+                                    <div class="viewport-title">🎬 Replay (Full)</div>
+                                    <div class="image-container-full" id="container-full">
+                                        <img src="" id="screen-grab" class="raw-screen-image" alt="Full Replay Screenshot">
+                                        <div class="coordinate-overlay" id="coordinate-overlay"></div>
+                                    </div>
                                 </div>
-                                <div class="timeline-navigation-controls">
-                                    <button type="button" class="btn-timeline-nav" id="btn-prev-step" disabled title="Previous Step">◀ Prev</button>
-                                    <button type="button" class="btn-timeline-nav" id="btn-next-step" disabled title="Next Step">Next ▶</button>
-                                </div>
-                            </div>
-                            <div class="timeline-track-container">
-                                <div class="timeline-track" id="timeline-track">
-                                    <div class="timeline-empty-msg">No active execution. Launch a run or select historic run to interact.</div>
+                                <div class="viewport-wrapper">
+                                    <div class="viewport-title">🧠 LLM Vision (Scaled)</div>
+                                    <div class="image-container-llm" id="container-llm">
+                                        <img src="" id="screen-grab-llm" class="raw-screen-image-llm" alt="LLM Vision Screenshot">
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Agent Thoughts / Reasoning -->
-                        <div class="agent-thoughts-card">
-                            <h3>🤖 Play Agent Reasoning</h3>
-                            <div class="thoughts-box" id="thoughts-box">
-                                <span class="dimmed">Waiting for play agent turn reasoning...</span>
+                        <!-- Compact Timeline Media Scrubber -->
+                        <div class="compact-timeline-container">
+                            <div class="timeline-controls-row">
+                                <button type="button" class="btn-timeline-nav" id="btn-prev-step" disabled title="Previous Step">◀</button>
+                                <input type="range" id="timeline-scrubber" class="timeline-slider" min="1" max="1" value="1" disabled>
+                                <button type="button" class="btn-timeline-nav" id="btn-next-step" disabled title="Next Step">▶</button>
+                            </div>
+                            <div class="timeline-info-row">
+                                <span class="timeline-step-label" id="timeline-step-label">No steps</span>
+                                <span class="timeline-status-desc" id="timeline-status-desc">System Idle</span>
                             </div>
                         </div>
 
@@ -185,52 +189,61 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Right Column: AI Reasoning & Console tabbed logs -->
+            <section class="right-panel">
+                <!-- Logs, Reasoning & Diagnostics Unified Card -->
+                <div class="dashboard-card glass-card logs-card flex-grow-card">
+                    <div class="card-header logs-header">
+                        <div class="tabs-navigation">
+                            <button class="tab-btn active" data-tab="reasoning-tab">🧠 Agent Reasoning</button>
+                            <button class="tab-btn" data-tab="telemetry-tab">📊 Telemetry timeseries</button>
+                            <button class="tab-btn" data-tab="logcat-tab">📋 Device logcat</button>
+                        </div>
+                        <button class="btn-danger btn-sm" id="btn-clear-telemetry">🗑️ Clear</button>
+                    </div>
+                    <div class="card-content logs-content">
+                        <!-- Tab 1: Agent Thoughts / Reasoning -->
+                        <div class="tab-panel active" id="reasoning-tab">
+                            <div class="thoughts-box" id="thoughts-box">
+                                <span class="dimmed">Waiting for play agent turn reasoning...</span>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Telemetry timeseries event flow -->
+                        <div class="tab-panel" id="telemetry-tab">
+                            <div class="table-scroll-container">
+                                <table class="telemetry-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Timestamp</th>
+                                            <th>Device Serial</th>
+                                            <th>APK Package</th>
+                                            <th>Step</th>
+                                            <th>Player Action</th>
+                                            <th>Visual Grabs</th>
+                                            <th>Engine Logs</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="telemetry-body">
+                                        <tr>
+                                            <td colspan="7" class="center-text dimmed">No event timeseries collected yet.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Device logcat console -->
+                        <div class="tab-panel" id="logcat-tab">
+                            <div class="terminal-container">
+                                <pre class="terminal-log" id="logcat-console">Waiting for game session logcat dump... (Logs will compile and appear here at session end)</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
-
-        <!-- Bottom Panel: Telemetry timeseries stream and logcats -->
-        <footer class="app-footer">
-            <div class="dashboard-card glass-card logs-card">
-                <div class="card-header logs-header">
-                    <div class="tabs-navigation">
-                        <button class="tab-btn active" data-tab="telemetry-tab">📊 Telemetry Timeseries Event Flow</button>
-                        <button class="tab-btn" data-tab="logcat-tab">📋 Device logcat Console</button>
-                    </div>
-                    <button class="btn-danger btn-sm" id="btn-clear-telemetry">🗑️ Clear Event Log</button>
-                </div>
-                <div class="card-content logs-content">
-                    <!-- Tab 1: Telemetry timeseries event flow -->
-                    <div class="tab-panel active" id="telemetry-tab">
-                        <div class="table-scroll-container">
-                            <table class="telemetry-table">
-                                <thead>
-                                    <tr>
-                                        <th>Timestamp</th>
-                                        <th>Device Serial</th>
-                                        <th>APK Package</th>
-                                        <th>Step</th>
-                                        <th>Player Action</th>
-                                        <th>Visual Grabs</th>
-                                        <th>Engine Logs</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="telemetry-body">
-                                    <tr>
-                                        <td colspan="7" class="center-text dimmed">No event timeseries collected yet.</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Tab 2: Device logcat console -->
-                    <div class="tab-panel" id="logcat-tab">
-                        <div class="terminal-container">
-                            <pre class="terminal-log" id="logcat-console">Waiting for game session logcat dump... (Logs will compile and appear here at session end)</pre>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </footer>
     </div>
 
     <!-- Scripts -->

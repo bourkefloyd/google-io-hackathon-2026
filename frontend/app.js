@@ -13,6 +13,8 @@ const elStopBtn = document.getElementById("btn-stop-run");
 const elFleetList = document.getElementById("fleet-list");
 const elViewportPlaceholder = document.getElementById("viewport-placeholder");
 const elScreenGrab = document.getElementById("screen-grab");
+const elScreenGrabLlm = document.getElementById("screen-grab-llm");
+const elDualViewports = document.getElementById("dual-viewports");
 const elCoordinateOverlay = document.getElementById("coordinate-overlay");
 const elThoughtsBox = document.getElementById("thoughts-box");
 const elCommandBox = document.getElementById("command-box");
@@ -22,8 +24,9 @@ const elTelemetryBody = document.getElementById("telemetry-body");
 const elLogcatConsole = document.getElementById("logcat-console");
 const elClearTelemetry = document.getElementById("btn-clear-telemetry");
 const elRunSelect = document.getElementById("run-selector");
-const elTimelineTrack = document.getElementById("timeline-track");
-const elTimelineStepInfo = document.getElementById("timeline-step-info");
+const elTimelineScrubber = document.getElementById("timeline-scrubber");
+const elTimelineStepLabel = document.getElementById("timeline-step-label");
+const elTimelineStatusDesc = document.getElementById("timeline-status-desc");
 const elBtnPrevStep = document.getElementById("btn-prev-step");
 const elBtnNextStep = document.getElementById("btn-next-step");
 
@@ -49,6 +52,12 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 // Max Steps Slider label listener
 elMaxSteps.addEventListener("input", (e) => {
     elStepsVal.innerText = `${e.target.value} steps`;
+});
+
+// Timeline range scrubber drag listener
+elTimelineScrubber.addEventListener("input", (e) => {
+    const val = parseInt(e.target.value);
+    selectTimelineStep(val - 1);
 });
 
 // Check Server Status & Fetch Connected Devices on Startup
@@ -240,7 +249,9 @@ elLaunchBtn.addEventListener("click", async () => {
     // Reset replay view and events
     activeRunEvents = [];
     elViewportPlaceholder.classList.add("hidden");
+    if (elDualViewports) elDualViewports.classList.add("hidden");
     elScreenGrab.classList.add("hidden");
+    if (elScreenGrabLlm) elScreenGrabLlm.classList.add("hidden");
     elCoordinateOverlay.innerHTML = "";
     elThoughtsBox.innerHTML = "<span class='dimmed'>Play agent starting... Warmup prompt fired.</span>";
     elCommandBox.innerHTML = "<code>Connecting to device logcat telemetry...</code>";
@@ -256,8 +267,14 @@ elLaunchBtn.addEventListener("click", async () => {
     elStopBtn.disabled = false;
     elStopBtn.classList.remove("hidden");
 
-    elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">Waiting for step 1 frame...</div>`;
-    elTimelineStepInfo.innerText = "0 steps";
+    if (elTimelineScrubber) {
+        elTimelineScrubber.min = 1;
+        elTimelineScrubber.max = 1;
+        elTimelineScrubber.value = 1;
+        elTimelineScrubber.disabled = true;
+    }
+    if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Starting...";
+    if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Waiting for step 1 frame...";
 
     try {
         const res = await fetch("/api/play", {
@@ -380,7 +397,12 @@ function handlePlayUpdate(packet, deviceId) {
         if (!existingEvent) {
             existingEvent = {
                 step_index: packet.step,
+                start_time: packet.start_time || "",
+                duration: packet.duration !== undefined ? packet.duration : undefined,
                 screenshot: packet.screenshot || "",
+                screenshot_path: packet.screenshot_path || "",
+                screenshot_llm: packet.screenshot_llm || "",
+                screenshot_llm_path: packet.screenshot_llm_path || "",
                 agent_reasoning: packet.reasoning || "",
                 actions_taken: packet.action && packet.action.includes("Tapped") ? [{type: "tap", params: {x: 0, y: 0}}] : [],
                 action_summary: packet.action || "",
@@ -388,7 +410,12 @@ function handlePlayUpdate(packet, deviceId) {
             };
             activeRunEvents.push(existingEvent);
         } else {
+            if (packet.start_time) existingEvent.start_time = packet.start_time;
+            if (packet.duration !== undefined) existingEvent.duration = packet.duration;
             if (packet.screenshot) existingEvent.screenshot = packet.screenshot;
+            if (packet.screenshot_path) existingEvent.screenshot_path = packet.screenshot_path;
+            if (packet.screenshot_llm) existingEvent.screenshot_llm = packet.screenshot_llm;
+            if (packet.screenshot_llm_path) existingEvent.screenshot_llm_path = packet.screenshot_llm_path;
             if (packet.reasoning) existingEvent.agent_reasoning = packet.reasoning;
             if (packet.action) existingEvent.action_summary = packet.action;
         }
@@ -446,10 +473,15 @@ function handlePlayUpdate(packet, deviceId) {
 // -------------------------------------------------------------
 
 function renderTimeline(events, currentStatus = "completed") {
-    elTimelineTrack.innerHTML = "";
     if (!events || events.length === 0) {
-        elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">No steps recorded in this session.</div>`;
-        elTimelineStepInfo.innerText = "Idle";
+        if (elTimelineScrubber) {
+            elTimelineScrubber.min = 1;
+            elTimelineScrubber.max = 1;
+            elTimelineScrubber.value = 1;
+            elTimelineScrubber.disabled = true;
+        }
+        if (elTimelineStepLabel) elTimelineStepLabel.innerText = "No steps";
+        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "System Idle";
         if (elBtnPrevStep && elBtnNextStep) {
             elBtnPrevStep.disabled = true;
             elBtnNextStep.disabled = true;
@@ -458,38 +490,26 @@ function renderTimeline(events, currentStatus = "completed") {
         return;
     }
     
-    events.forEach((ev, idx) => {
-        const node = document.createElement("div");
-        node.className = "timeline-node";
-        node.dataset.index = idx;
+    // Set scrubber min, max, value
+    if (elTimelineScrubber) {
+        elTimelineScrubber.min = 1;
+        elTimelineScrubber.max = events.length;
+        elTimelineScrubber.disabled = false;
         
-        if (idx === events.length - 1 && currentStatus === "playing") {
-            node.classList.add("active");
-        } else {
-            node.classList.add("completed");
+        // Default to the latest step if out of bounds
+        if (selectedStepIndex < 0 || selectedStepIndex >= events.length) {
+            selectedStepIndex = events.length - 1;
         }
-        
-        node.innerHTML = `
-            <div class="node-dot"></div>
-            <span class="node-label">Step ${ev.step_index}</span>
-        `;
-        
-        node.addEventListener("click", () => {
-            document.querySelectorAll(".timeline-node").forEach(n => n.classList.remove("selected"));
-            node.classList.add("selected");
-            selectTimelineStep(idx);
-        });
-        
-        elTimelineTrack.appendChild(node);
-        
-        if (idx < events.length - 1) {
-            const connector = document.createElement("div");
-            connector.className = "timeline-connector completed";
-            elTimelineTrack.appendChild(connector);
-        }
-    });
+        elTimelineScrubber.value = selectedStepIndex + 1;
+    }
     
-    elTimelineStepInfo.innerText = `${events.length} steps (${currentStatus})`;
+    const ev = events[selectedStepIndex];
+    if (elTimelineStepLabel) {
+        elTimelineStepLabel.innerText = `Step ${selectedStepIndex + 1} of ${events.length} (${currentStatus})`;
+    }
+    if (elTimelineStatusDesc && ev) {
+        elTimelineStatusDesc.innerText = ev.action_summary || "No action recorded (observing)";
+    }
 }
 
 function selectTimelineStep(index) {
@@ -500,19 +520,63 @@ function selectTimelineStep(index) {
     const ev = events[index];
     
     // 1. Update Screenshot Grab (Dynamic base64 or static served path URL)
+    let hasScreenshot = false;
     if (ev.screenshot) {
         elScreenGrab.src = `data:image/png;base64,${ev.screenshot}`;
         elScreenGrab.classList.remove("hidden");
-        elViewportPlaceholder.classList.add("hidden");
+        hasScreenshot = true;
     } else if (ev.screenshot_path) {
         // Load fast static image from server
         elScreenGrab.src = ev.screenshot_path;
         elScreenGrab.classList.remove("hidden");
-        elViewportPlaceholder.classList.add("hidden");
+        hasScreenshot = true;
     } else {
         elScreenGrab.src = "";
         elScreenGrab.classList.add("hidden");
+    }
+
+    // Update LLM Screenshot Grab (scaled visual input)
+    if (ev.screenshot_llm) {
+        elScreenGrabLlm.src = `data:image/png;base64,${ev.screenshot_llm}`;
+        elScreenGrabLlm.classList.remove("hidden");
+    } else if (ev.screenshot_llm_path) {
+        elScreenGrabLlm.src = ev.screenshot_llm_path;
+        elScreenGrabLlm.classList.remove("hidden");
+    } else {
+        // Fallback to main screenshot if LLM specific version doesn't exist
+        if (hasScreenshot) {
+            elScreenGrabLlm.src = elScreenGrab.src;
+            elScreenGrabLlm.classList.remove("hidden");
+        } else {
+            elScreenGrabLlm.src = "";
+            elScreenGrabLlm.classList.add("hidden");
+        }
+    }
+
+    // Dynamically scale the LLM image relative to the full size image (not scaled up)
+    if (hasScreenshot && elScreenGrabLlm) {
+        const imgFull = new Image();
+        imgFull.src = elScreenGrab.src;
+        imgFull.onload = () => {
+            const fullH = imgFull.naturalHeight || 1200;
+            const imgLlm = new Image();
+            imgLlm.src = elScreenGrabLlm.src;
+            imgLlm.onload = () => {
+                const llmH = imgLlm.naturalHeight || 384;
+                const ratio = llmH / fullH;
+                const calculatedHeight = Math.round(420 * ratio);
+                elScreenGrabLlm.style.height = `${calculatedHeight}px`;
+            };
+        };
+    }
+
+    // Toggle viewport visibility layout states
+    if (hasScreenshot) {
+        elViewportPlaceholder.classList.add("hidden");
+        if (elDualViewports) elDualViewports.classList.remove("hidden");
+    } else {
         elViewportPlaceholder.classList.remove("hidden");
+        if (elDualViewports) elDualViewports.classList.add("hidden");
     }
     
     // 2. Parse and render Structured Reasoning Cards
@@ -535,8 +599,20 @@ function selectTimelineStep(index) {
     // 4. Update action commands box
     elCommandBox.innerHTML = `<code>${ev.action_summary || "No actions performed (observing)"}</code>`;
     
-    // 5. Update timeline status meta info
-    elStepBadge.innerText = `Step ${ev.step_index}`;
+    // 5. Update timeline status scrubber and labels
+    if (elTimelineScrubber) {
+        elTimelineScrubber.value = index + 1;
+    }
+    if (elTimelineStepLabel) {
+        let labelText = `Step ${index + 1} of ${events.length}`;
+        if (ev.duration !== undefined) {
+            labelText += ` (${ev.duration}s)`;
+        }
+        elTimelineStepLabel.innerText = labelText;
+    }
+    if (elTimelineStatusDesc) {
+        elTimelineStatusDesc.innerText = ev.action_summary || "No action recorded (observing)";
+    }
     
     // 6. Update step-specific logs
     if (ev.logs) {
@@ -550,17 +626,6 @@ function selectTimelineStep(index) {
         elBtnPrevStep.disabled = index <= 0;
         elBtnNextStep.disabled = index >= events.length - 1;
     }
-    
-    // 8. Highlight selected node visually & scroll it into center view
-    const nodes = document.querySelectorAll(".timeline-node");
-    nodes.forEach((n, idx) => {
-        if (idx === index) {
-            n.classList.add("selected");
-            n.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        } else {
-            n.classList.remove("selected");
-        }
-    });
 }
 
 function renderStructuredReasoning(reasoningText) {
@@ -691,7 +756,8 @@ elRunSelect.addEventListener("change", async (e) => {
 });
 
 async function loadHistoricRunDetails(runId) {
-    elTimelineTrack.innerHTML = `<div class="timeline-empty-msg">Loading historic run details...</div>`;
+    if (elTimelineStepLabel) elTimelineStepLabel.innerText = "Loading...";
+    if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Loading historic run details...";
     try {
         const res = await fetch(`/api/runs/${runId}`);
         if (res.ok) {
@@ -704,15 +770,6 @@ async function loadHistoricRunDetails(runId) {
             // Load the first step by default
             if (historicRunEvents.length > 0) {
                 selectTimelineStep(0);
-                
-                // Highlight first node
-                setTimeout(() => {
-                    const nodes = document.querySelectorAll(".timeline-node");
-                    if (nodes[0]) {
-                        nodes.forEach(n => n.classList.remove("selected"));
-                        nodes[0].classList.add("selected");
-                    }
-                }, 100);
             } else {
                 clearTimelineDetails();
             }
@@ -731,14 +788,19 @@ async function loadHistoricRunDetails(runId) {
         }
     } catch (e) {
         console.error("Failed to load historic run details:", e);
-        elTimelineTrack.innerHTML = `<div class="timeline-empty-msg" style="color: var(--danger)">Error loading past run.</div>`;
+        if (elTimelineStatusDesc) elTimelineStatusDesc.innerText = "Error loading past run.";
     }
 }
 
 function clearTimelineDetails() {
     elViewportPlaceholder.classList.remove("hidden");
+    if (elDualViewports) elDualViewports.classList.add("hidden");
     elScreenGrab.classList.add("hidden");
     elScreenGrab.src = "";
+    if (elScreenGrabLlm) {
+        elScreenGrabLlm.classList.add("hidden");
+        elScreenGrabLlm.src = "";
+    }
     elCoordinateOverlay.innerHTML = "";
     elThoughtsBox.innerHTML = "<span class='dimmed'>Replay viewport is idle. Select a step to inspect.</span>";
     elCommandBox.innerHTML = "<code>adb shell idle</code>";
@@ -792,7 +854,7 @@ function renderTelemetryTable(events) {
             <td><code>${time}</code></td>
             <td><code>${e.emulator_id}</code></td>
             <td><code>${e.package_name}</code></td>
-            <td><span class="badge-tag gcp">${e.step_index === 999 ? "END" : `Step ${e.step_index}`}</span></td>
+            <td><span class="badge-tag gcp">${e.step_index === 999 ? "END" : `Step ${e.step_index}${e.duration !== undefined ? ` (${e.duration}s)` : ""}`}</span></td>
             <td>${e.action_summary}</td>
             <td><span class="badge-tag ${e.has_screenshot ? 'yes' : 'dimmed'}">${e.has_screenshot ? 'Captured' : 'None'}</span></td>
             <td><span class="badge-tag ${e.has_logs ? 'yes' : 'dimmed'}">${e.has_logs ? 'Dumped' : 'None'}</span></td>
