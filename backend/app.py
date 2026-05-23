@@ -176,9 +176,9 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
     # Check if target device is currently in progress
     busy_devices = set(active_runs_devices.values())
     if target_device in busy_devices:
-        logger.info(f"Requested device {target_device} is busy. Finding idle or creating new emulator...")
+        logger.info(f"Requested device {target_device} is busy. Finding an idle connected device...")
         
-        # 1. Search for another connected device/emulator that is idle
+        # Search for another connected device/emulator that is idle
         all_devices = fleet_manager.list_devices()
         idle_devices = [d for d in all_devices if d not in busy_devices]
         
@@ -187,10 +187,11 @@ def start_play_run(req: PlayRequest, background_tasks: BackgroundTasks):
             redirect_msg = f"Device {req.device_id} was busy. Auto-routed to idle device {target_device}."
             logger.info(redirect_msg)
         else:
-            # 2. No idle devices, dynamically create/boot a new mock emulator!
-            target_device = fleet_manager.create_mock_device()
-            redirect_msg = f"Device {req.device_id} was busy. Dynamically booted and targeted new mock emulator {target_device}."
-            logger.info(redirect_msg)
+            logger.warning(f"All connected devices are busy. Refusing run on {req.device_id}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"All active Android devices are currently busy. Please stop the running play sessions or wait before starting a new run."
+            )
 
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 

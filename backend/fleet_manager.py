@@ -10,26 +10,11 @@ logging.basicConfig(level=logging.INFO)
 
 class FleetManager:
     def __init__(self):
-        # Maps device_id -> session metrics to generate responsive screenshots
-        self._step_counters: Dict[str, int] = {}
-        self._last_actions: Dict[str, str] = {}
-        self._last_taps: Dict[str, Optional[tuple]] = {}
-        self._last_swipes: Dict[str, Optional[tuple]] = {}
+        # Maps apk_path -> parsed details to optimize install checks
         self._apk_details_cache: Dict[str, Dict[str, str]] = {}
-        self.mock_devices = ["emulator-5554-mock"]
 
     def get_device_details(self, device_id: str) -> Dict[str, str]:
         """Gets device model, brand, type (emulator/physical), and resolution."""
-        if "mock" in device_id:
-            return {
-                "id": device_id,
-                "model": "Simulated Pixel 6 Pro",
-                "brand": "Google",
-                "type": "emulator",
-                "resolution": "1080x1920",
-                "name": "Simulated Pixel 6 Pro (mock)",
-            }
-
         # Query model
         res_model = self.run_cmd(
             ["adb", "-s", device_id, "shell", "getprop", "ro.product.model"]
@@ -111,26 +96,13 @@ class FleetManager:
         except FileNotFoundError:
             return False
 
-    def create_mock_device(self) -> str:
-        """Dynamically creates a new mock emulator device ID."""
-        existing_nums = []
-        for d in self.mock_devices:
-            match = re.search(r"emulator-(\d+)-mock", d)
-            if match:
-                existing_nums.append(int(match.group(1)))
-        next_num = max(existing_nums) + 1 if existing_nums else 5554
-        new_device_id = f"emulator-{next_num}-mock"
-        self.mock_devices.append(new_device_id)
-        logger.info(f"Dynamically created new mock emulator: {new_device_id}")
-        return new_device_id
-
     def list_devices(self) -> List[str]:
-        """Runs 'adb devices' and parses connected emulator serials, combining with simulated mock emulators."""
+        """Runs 'adb devices' and parses connected emulator and physical device serials."""
         if not self.is_adb_available():
             logger.warning(
-                "Android Platform Tools (adb) not found in system PATH. Returning active simulated mock emulators."
+                "Android Platform Tools (adb) not found in system PATH. Returning empty active fleet."
             )
-            return list(self.mock_devices)
+            return []
 
         res = self.run_cmd(["adb", "devices"])
         devices = []
@@ -144,18 +116,10 @@ class FleetManager:
         else:
             logger.error(f"Failed to list devices via adb: {res.stderr}")
 
-        # Union of ADB-connected devices and dynamic mock devices
-        combined = list(devices)
-        for d in self.mock_devices:
-            if d not in combined:
-                combined.append(d)
-        return combined
+        return devices
 
     def get_device_resolution(self, device_id: str) -> Dict[str, int]:
         """Gets screen size in pixels using adb shell wm size."""
-        if "mock" in device_id:
-            return {"width": 1080, "height": 1920}
-
         res = self.run_cmd(["adb", "-s", device_id, "shell", "wm", "size"])
         if res.returncode != 0:
             logger.warning(
@@ -196,12 +160,6 @@ class FleetManager:
         self, device_id: str, package_name: str
     ) -> Optional[Dict[str, str]]:
         """Gets installed package details (versionName, versionCode) from the device."""
-        if "mock" in device_id:
-            # For mock/simulated play runs, return matching details for the default package
-            if package_name == "com.unity.simulated_player":
-                return {"version_name": "1.0", "version_code": "1"}
-            return None
-
         res = self.run_cmd(
             ["adb", "-s", device_id, "shell", "dumpsys", "package", package_name]
         )
@@ -226,16 +184,6 @@ class FleetManager:
 
     def install_apk(self, device_id: str, apk_path: str) -> bool:
         """Installs the provided APK on the specific device, only if not already installed with the same version."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Simulating APK install for path: {apk_path} on target: {device_id}"
-            )
-            self._step_counters[device_id] = 0
-            self._last_actions[device_id] = "Simulated APK Installed Successfully"
-            self._last_taps[device_id] = None
-            self._last_swipes[device_id] = None
-            return True
-
         if not os.path.exists(apk_path):
             logger.error(f"APK file not found: {apk_path}")
             return False
@@ -290,15 +238,6 @@ class FleetManager:
         self, device_id: str, package_name: str, activity_name: Optional[str] = None
     ) -> bool:
         """Launches the app. If activity_name is not provided, tries to resolve launcher activity."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Simulating application startup sequence for package: {package_name} on {device_id}"
-            )
-            self._last_actions[device_id] = f"Launched Game Package '{package_name}'"
-            self._last_taps[device_id] = None
-            self._last_swipes[device_id] = None
-            return True
-
         if not activity_name:
             # Try to resolve main activity
             cmd = f"cmd package resolve-activity --brief {package_name} | tail -n 1"
@@ -334,10 +273,6 @@ class FleetManager:
 
     def keep_device_awake(self, device_id: str) -> None:
         """Keeps the physical or virtual device awake, wakes it up, and dismisses keyguard."""
-        if "mock" in device_id:
-            logger.info(f"[MOCK ADB] Simulating keeping device awake on {device_id}")
-            return
-
         logger.info(f"Ensuring device {device_id} stays awake, waking up screen, and dismissing keyguard.")
         self.run_cmd(["adb", "-s", device_id, "shell", "svc", "power", "stayon", "true"])
         self.run_cmd(["adb", "-s", device_id, "shell", "input", "keyevent", "224"])
@@ -345,47 +280,23 @@ class FleetManager:
 
     def force_stop_app(self, device_id: str, package_name: str) -> None:
         """Kills the app."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Simulating application teardown for package: {package_name} on {device_id}"
-            )
-            self._last_actions[device_id] = f"Force-Stopped Game '{package_name}'"
-            return
-
         self.run_cmd(
             ["adb", "-s", device_id, "shell", "am", "force-stop", package_name]
         )
 
     def clear_logcat(self, device_id: str) -> None:
         """Clears logcat buffer."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Clearing local simulated logcat buffer on {device_id}"
-            )
-            return
-
         logger.info(f"Clearing logcat buffer on {device_id}...")
         self.run_cmd(["adb", "-s", device_id, "logcat", "-c"])
 
     def dump_logcat(self, device_id: str) -> str:
         """Dumps current logcat buffer in memory."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Compiling and dumping gameplay logcats from {device_id}..."
-            )
-            return self.compile_mock_logcat()
-
         logger.info(f"Dumping logcat from {device_id}...")
         res = self.run_cmd(["adb", "-s", device_id, "logcat", "-d"])
         return res.stdout
 
     def take_screenshot(self, device_id: str, output_path: str, max_steps: int = 50) -> bool:
         """Saves device screenshot directly to output_path using piping."""
-        if "mock" in device_id:
-            # Increment steps and render a premium gorgeous mock screenshot dynamically using Pillow
-            self._step_counters[device_id] = self._step_counters.get(device_id, 0) + 1
-            return self.generate_mock_screenshot(device_id, output_path, max_steps=max_steps)
-
         try:
             # We use exec-out screencap -p to capture and transfer directly via stdout
             with open(output_path, "wb") as f:
@@ -416,17 +327,6 @@ class FleetManager:
         abs_x = int(rel_x * res["width"])
         abs_y = int(rel_y * res["height"])
 
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Tapped coordinates: normalized=({rel_x:.2f}, {rel_y:.2f}), absolute=({abs_x}, {abs_y})"
-            )
-            self._last_actions[device_id] = (
-                f"Executed Tap Action at ({rel_x:.2f}, {rel_y:.2f})"
-            )
-            self._last_taps[device_id] = (rel_x, rel_y)
-            self._last_swipes[device_id] = None
-            return f"adb shell input tap {abs_x} {abs_y}"
-
         cmd = ["adb", "-s", device_id, "shell", "input", "tap", str(abs_x), str(abs_y)]
         self.run_cmd(cmd)
         return f"adb shell input tap {abs_x} {abs_y}"
@@ -446,17 +346,6 @@ class FleetManager:
         abs_y1 = int(rel_y1 * res["height"])
         abs_x2 = int(rel_x2 * res["width"])
         abs_y2 = int(rel_y2 * res["height"])
-
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Swiped from ({rel_x1:.2f}, {rel_y1:.2f}) to ({rel_x2:.2f}, {rel_y2:.2f})"
-            )
-            self._last_actions[device_id] = (
-                f"Executed Swipe from ({rel_x1:.2f}, {rel_y1:.2f}) to ({rel_x2:.2f}, {rel_y2:.2f})"
-            )
-            self._last_taps[device_id] = None
-            self._last_swipes[device_id] = (rel_x1, rel_y1, rel_x2, rel_y2)
-            return f"adb shell input swipe {abs_x1} {abs_y1} {abs_x2} {abs_y2} {duration_ms}"
 
         cmd = [
             "adb",
@@ -478,15 +367,6 @@ class FleetManager:
 
     def execute_text(self, device_id: str, text: str) -> str:
         """Enters text input."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Inputting text telemetry: '{text}' on device: {device_id}"
-            )
-            self._last_actions[device_id] = f"Input Text string: '{text}'"
-            self._last_taps[device_id] = None
-            self._last_swipes[device_id] = None
-            return f"adb shell input text '{text}'"
-
         # Sanitize spaces for adb shell input text
         sanitized = text.replace(" ", "%s")
         cmd = ["adb", "-s", device_id, "shell", "input", "text", sanitized]
@@ -495,319 +375,6 @@ class FleetManager:
 
     def execute_keyevent(self, device_id: str, key_code: int) -> str:
         """Sends key event (e.g. back button = 4, home button = 3)."""
-        if "mock" in device_id:
-            logger.info(
-                f"[MOCK ADB] Dispatched Keyevent: {key_code} on device: {device_id}"
-            )
-            self._last_actions[device_id] = (
-                f"Dispatched keyevent {key_code} (Back/Home)"
-            )
-            self._last_taps[device_id] = None
-            self._last_swipes[device_id] = None
-            return f"adb shell input keyevent {key_code}"
-
         cmd = ["adb", "-s", device_id, "shell", "input", "keyevent", str(key_code)]
         self.run_cmd(cmd)
         return f"adb shell input keyevent {key_code}"
-
-    def compile_mock_logcat(self) -> str:
-        """Compiles a highly realistic Android & Unity game engine logcat stream."""
-        from datetime import datetime
-
-        now = datetime.now().strftime("%m-%d %H:%M:%S.%f")[:-3]
-        log_lines = [
-            f"{now}  1200  1230 I ActivityManager: Start proc com.unity.simulated_player for activity com.unity.simulated_player/com.unity3d.player.UnityPlayerActivity",
-            f"{now}  1200  1245 D dalvikvm: Late-enabling CheckJNI",
-            f"{now}  1200  1230 I AndroidRuntime: Calling main entry com.unity.simulated_player",
-            f"{now}  1200  1250 I Unity   :  [Version] Unity Engine v2022.3.12f1 (arm64)",
-            f"{now}  1200  1250 I Unity   :  [OS] Android OS 12 / API-31",
-            f"{now}  1200  1250 I Unity   :  [Device] Simulated Google Pixel 6 Pro",
-            f"{now}  1200  1250 I Unity   :  [Graphics] Vulkan API initialized successfully",
-            f"{now}  1200  1250 I Unity   : ScreenManager: Window size 1080x1920",
-            f"{now}  1200  1252 D Unity   : GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_sync GL_OES_vertex_half_float",
-            f"{now}  1200  1250 I Unity   : [PlayerFleetTelemetry] Initializing telemetry ingestion loop...",
-            f"{now}  1200  1250 I Unity   : [PlayerFleetTelemetry] Local endpoint: http://localhost:8000/api/telemetry",
-            f"{now}  1200  1255 I Unity   : LoadScene: Loading level 'Scene_MainMenu' in background...",
-            f"{now}  1200  1260 I Unity   : SceneLoad: Scene_MainMenu loaded in 0.42 seconds",
-            f"{now}  1200  1260 D Unity   : [UI] Loaded main menu layout successfully. StartButton: Active, SettingsButton: Active",
-            f"{now}  1200  1265 I Unity   : [PlayerTelemetry] Action received: Tapped start button (0.5, 0.72)",
-            f"{now}  1200  1270 I Unity   : LoadScene: Loading level 'Scene_Level1_Gameplay'...",
-            f"{now}  1200  1275 I Unity   : SceneLoad: Scene_Level1_Gameplay loaded in 1.18 seconds",
-            f"{now}  1200  1280 I Unity   : [UI] Initializing level 1 board. Total matching tiles: 64",
-            f"{now}  1200  1285 I Unity   : [Gameplay] Player made tile match! Coordinates: (3, 4) with (3, 5). Score +150",
-            f"{now}  1200  1290 I Unity   : [Gameplay] Spawned replacement tiles. Current board state: STABLE",
-            f"{now}  1200  1295 I Unity   : [Gameplay] Player tapped coordinate (0.3, 0.44). Action valid.",
-            f"{now}  1200  1300 W Unity   : [AdSDK] Failed to load interstitial ad: Ad request timed out.",
-            f"{now}  1200  1305 I Unity   : [Gameplay] Match detected at (1, 2). Cascade chain reaction. Score +450",
-            f"{now}  1200  1310 I Unity   : [PlayerTelemetry] Goal criteria evaluated: Match puzzle level complete!",
-            f"{now}  1200  1315 I Unity   : [PlayerFleetTelemetry] Pushing final game stats payload. Bytes: 1048",
-            f"{now}  1200  1320 I ActivityManager: Killing 1200:com.unity.simulated_player/u0a112 (adj 900): force stop",
-        ]
-        return "\n".join(log_lines)
-
-    def generate_mock_screenshot(self, device_id: str, output_path: str, max_steps: int = 50) -> bool:
-        """Generates a premium visual screenshot for the simulated game using Pillow."""
-        try:
-            from PIL import (
-                Image as PILImage,
-                ImageDraw as PILImageDraw,
-                ImageFont as PILImageFont,
-            )
-
-            width, height = 1080, 1920
-            # Create premium canvas background
-            img = PILImage.new("RGB", (width, height), "#1A0B2E")
-            draw = PILImageDraw.Draw(img)
-
-            # 1. Horizontal vertical gradient backdrop (#1A0B2E to obsidian #0A0413)
-            for y in range(height):
-                r = int(0x1A + (0x0A - 0x1A) * y / height)
-                g = int(0x0B + (0x04 - 0x0B) * y / height)
-                b = int(0x2E + (0x13 - 0x2E) * y / height)
-                draw.line([(0, y), (width, y)], fill=(r, g, b))
-
-            # 2. Draw modern background radial circles
-            draw.ellipse((-200, 300, 600, 1100), fill=None, outline="#3D1A60", width=4)
-            draw.ellipse((600, 800, 1300, 1500), fill=None, outline="#2A1045", width=3)
-            draw.ellipse((-300, 1200, 400, 1900), fill=None, outline="#1E0B33", width=5)
-
-            # 3. Dynamic Font Ingestion with deep mac system safety fallbacks
-            try:
-                font_title = PILImageFont.truetype(
-                    "/System/Library/Fonts/Helvetica.ttc", 48
-                )
-                font_subtitle = PILImageFont.truetype(
-                    "/System/Library/Fonts/Helvetica.ttc", 36
-                )
-                font_body = PILImageFont.truetype(
-                    "/System/Library/Fonts/Helvetica.ttc", 28
-                )
-                font_small = PILImageFont.truetype(
-                    "/System/Library/Fonts/Helvetica.ttc", 22
-                )
-            except Exception:
-                try:
-                    font_title = PILImageFont.truetype("Arial.ttf", 48)
-                    font_subtitle = PILImageFont.truetype("Arial.ttf", 36)
-                    font_body = PILImageFont.truetype("Arial.ttf", 28)
-                    font_small = PILImageFont.truetype("Arial.ttf", 22)
-                except Exception:
-                    font_title = PILImageFont.load_default()
-                    font_subtitle = font_title
-                    font_body = font_title
-                    font_small = font_title
-
-            # Collect metrics
-            step = self._step_counters.get(device_id, 0)
-            score = step * 150 + 250
-            last_action = self._last_actions.get(device_id, "System Boot / Game Launch")
-
-            # 4. Header Glossy Glassmorphic Dashboard
-            draw.rounded_rectangle(
-                (80, 80, 1000, 300),
-                radius=24,
-                fill="#2E164ACC",
-                outline="#5B2E8C",
-                width=3,
-            )
-            draw.text(
-                (120, 110),
-                "🏆 JEPA METADATA INGESTION BOARD",
-                fill="#E2D4F0",
-                font=font_subtitle,
-            )
-            draw.text((120, 170), f"SCORE: {score}", fill="#FFD700", font=font_title)
-            draw.text((700, 170), f"STEP: {step}/{max_steps}", fill="#00FFCC", font=font_title)
-            draw.text(
-                (120, 240),
-                "Status: Telemetry Connected (Local SDK Mode)",
-                fill="#8BC34A",
-                font=font_small,
-            )
-
-            # 5. Play Board Panel Grid (6x6)
-            board_left, board_top = 130, 420
-            cell_size, spacing = 110, 30
-
-            draw.rounded_rectangle(
-                (100, 390, 980, 1260),
-                radius=20,
-                fill="#130822CC",
-                outline="#421C6F",
-                width=2,
-            )
-
-            for row in range(6):
-                for col in range(6):
-                    c_left = board_left + col * (cell_size + spacing)
-                    c_top = board_top + row * (cell_size + spacing)
-                    c_right = c_left + cell_size
-                    c_bottom = c_top + cell_size
-
-                    draw.rounded_rectangle(
-                        (c_left, c_top, c_right, c_bottom),
-                        radius=10,
-                        fill="#23123A",
-                        outline="#3C1F5C",
-                    )
-
-                    piece_type = (row * 3 + col * 7) % 4
-                    cx = c_left + cell_size // 2
-                    cy = c_top + cell_size // 2
-                    r = 30
-
-                    if piece_type == 0:
-                        draw.ellipse(
-                            (cx - r, cy - r, cx + r, cy + r),
-                            fill="#FF2E93",
-                            outline="#FFA0C5",
-                            width=2,
-                        )
-                    elif piece_type == 1:
-                        draw.rounded_rectangle(
-                            (cx - r, cy - r, cx + r, cy + r),
-                            radius=8,
-                            fill="#00E676",
-                            outline="#B9F6CA",
-                            width=2,
-                        )
-                    elif piece_type == 2:
-                        draw.polygon(
-                            [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
-                            fill="#FFEA00",
-                            outline="#FFFF8D",
-                            width=2,
-                        )
-                    elif piece_type == 3:
-                        draw.polygon(
-                            [
-                                (cx, cy - r),
-                                (cx + r - 10, cy + r),
-                                (cx - r + 10, cy + r),
-                            ],
-                            fill="#00E5FF",
-                            outline="#80DEEA",
-                            width=2,
-                        )
-
-            # 6. Interactive Active Game Screen Banner
-            draw.rounded_rectangle(
-                (200, 1320, 880, 1450),
-                radius=35,
-                fill="#4A154B",
-                outline="#FF2E93",
-                width=3,
-            )
-            draw.text(
-                (370, 1360),
-                "🎮 MOCK PLAYER FLEET ACTIVE",
-                fill="#FFFFFF",
-                font=font_subtitle,
-            )
-
-            # 7. Ingestion Debug Console
-            draw.rounded_rectangle(
-                (80, 1520, 1000, 1840),
-                radius=16,
-                fill="#050209",
-                outline="#00E5FF",
-                width=2,
-            )
-            draw.text(
-                (120, 1550),
-                "SYSTEM LOG MONITOR (ADB SIMULATION)",
-                fill="#00E5FF",
-                font=font_small,
-            )
-            draw.text(
-                (120, 1610),
-                f"Device ID:     {device_id}",
-                fill="#B2EBF2",
-                font=font_body,
-            )
-            draw.text(
-                (120, 1670),
-                f"Action Queue:  {last_action}",
-                fill="#B2EBF2",
-                font=font_body,
-            )
-
-            dot_color = "#FF2E93" if step % 2 == 0 else "#00FFCC"
-            draw.ellipse((930, 1550, 950, 1570), fill=dot_color)
-
-            # 8. Interactive Telemetry Click Coordinates Rendering
-            last_tap = self._last_taps.get(device_id)
-            last_swipe = self._last_swipes.get(device_id)
-
-            if last_tap:
-                tx, ty = last_tap
-                abs_x, abs_y = int(tx * width), int(ty * height)
-
-                # concentric glowing rings
-                draw.ellipse(
-                    (abs_x - 70, abs_y - 70, abs_x + 70, abs_y + 70),
-                    fill=None,
-                    outline="#FF5722",
-                    width=2,
-                )
-                draw.ellipse(
-                    (abs_x - 40, abs_y - 40, abs_x + 40, abs_y + 40),
-                    fill=None,
-                    outline="#FF9800",
-                    width=4,
-                )
-                draw.ellipse(
-                    (abs_x - 15, abs_y - 15, abs_x + 15, abs_y + 15), fill="#FFEB3B"
-                )
-
-                # dynamic coordinate overlay box
-                draw.rounded_rectangle(
-                    (abs_x + 30, abs_y - 75, abs_x + 250, abs_y - 25),
-                    radius=6,
-                    fill="#E65100",
-                    outline="#FFFFFF",
-                )
-                draw.text(
-                    (abs_x + 50, abs_y - 65),
-                    f"TAP ({tx:.2f}, {ty:.2f})",
-                    fill="#FFFFFF",
-                    font=font_small,
-                )
-
-            if last_swipe:
-                x1, y1, x2, y2 = last_swipe
-                ax1, ay1 = int(x1 * width), int(y1 * height)
-                ax2, ay2 = int(x2 * width), int(y2 * height)
-
-                draw.ellipse(
-                    (ax1 - 20, ay1 - 20, ax1 + 20, ay1 + 20),
-                    fill="#4CAF50",
-                    outline="#FFFFFF",
-                    width=2,
-                )
-                draw.line((ax1, ay1, ax2, ay2), fill="#00E5FF", width=8)
-                draw.ellipse(
-                    (ax2 - 20, ay2 - 20, ax2 + 20, ay2 + 20),
-                    fill="#FF5722",
-                    outline="#FFFFFF",
-                    width=2,
-                )
-
-                draw.rounded_rectangle(
-                    (ax2 + 30, ay2 - 30, ax2 + 330, ay2 + 20),
-                    radius=6,
-                    fill="#006064",
-                    outline="#FFFFFF",
-                )
-                draw.text(
-                    (ax2 + 50, ay2 - 20),
-                    f"SWIPE TO ({x2:.2f}, {y2:.2f})",
-                    fill="#FFFFFF",
-                    font=font_small,
-                )
-
-            img.save(output_path, "PNG")
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
-        except Exception as e:
-            logger.error(f"Error drawing mock screenshot: {e}", exc_info=True)
-            return False
