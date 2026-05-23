@@ -481,7 +481,38 @@ async def run_agent_play_loop(
                     reasoning = text_str if text_str else "No reasoning available."
 
                 # Fetch actions executed during the tool calls of this turn
-                actions_taken = session_tools.recorded_actions
+                actions_taken = []
+                async for tool_call in agent_response.tool_calls:
+                    name = tool_call.name
+                    args = tool_call.args or {}
+                    
+                    if name == "tap":
+                        desc = f"Tapped position ({args.get('x')}, {args.get('y')})"
+                    elif name == "swipe":
+                        desc = f"Swiped from ({args.get('x1')}, {args.get('y1')}) to ({args.get('x2')}, {args.get('y2')})"
+                    elif name == "wait_seconds":
+                        desc = f"Waited for {args.get('seconds')} seconds"
+                    elif name == "type_text":
+                        desc = f"Typed text: '{args.get('text')}'"
+                    elif name == "go_back":
+                        desc = "Pressed Back Button"
+                    elif name == "complete_session":
+                        desc = f"Session marked as finished. Reason: {args.get('comment')}"
+                    elif name == "execute_macro_sequence":
+                        desc = "Executed macro sequence"
+                    else:
+                        desc = f"Executed tool: {name}"
+                        
+                    actions_taken.append({
+                        "type": name,
+                        "params": args,
+                        "description": desc,
+                        "adb_command": f"adb shell input tap {int(args.get('x', 0) * 1080)} {int(args.get('y', 0) * 2400)}" if name == "tap" else ""
+                    })
+                
+                if not actions_taken:
+                    actions_taken = session_tools.recorded_actions
+
                 action_summary = (
                     "; ".join([a["description"] for a in actions_taken])
                     if actions_taken
@@ -535,6 +566,7 @@ async def run_agent_play_loop(
                         "screenshot_llm": base64_screenshot_llm,
                         "reasoning": reasoning,
                         "action": action_summary,
+                        "actions_taken": actions_taken,
                         "message": f"Step {step + 1}: {action_summary}",
                     }
                 )

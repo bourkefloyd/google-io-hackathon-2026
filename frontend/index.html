@@ -149,16 +149,19 @@
                                 <small>Telemetry screen grabs will render here in real-time</small>
                             </div>
                             
+                            <div class="viewport-tabs-container hidden" id="viewport-tabs">
+                                <button type="button" class="viewport-tab active" data-viewport="replay">🎬 REPLAY (FULL)</button>
+                                <button type="button" class="viewport-tab" data-viewport="llm">🧠 LLM VISION (SCALED)</button>
+                            </div>
+                            
                             <div class="dual-viewports hidden" id="dual-viewports">
-                                <div class="viewport-wrapper">
-                                    <div class="viewport-title">🎬 Replay (Full)</div>
+                                <div class="viewport-wrapper" id="wrapper-replay">
                                     <div class="image-container-full" id="container-full">
                                         <img src="" id="screen-grab" class="raw-screen-image" alt="Full Replay Screenshot">
                                         <div class="coordinate-overlay" id="coordinate-overlay"></div>
                                     </div>
                                 </div>
-                                <div class="viewport-wrapper">
-                                    <div class="viewport-title">🧠 LLM Vision (Scaled)</div>
+                                <div class="viewport-wrapper hidden" id="wrapper-llm">
                                     <div class="image-container-llm" id="container-llm">
                                         <img src="" id="screen-grab-llm" class="raw-screen-image-llm" alt="LLM Vision Screenshot">
                                     </div>
@@ -197,7 +200,7 @@
                     <div class="card-header logs-header">
                         <div class="tabs-navigation">
                             <button class="tab-btn active" data-tab="reasoning-tab">🧠 Agent Reasoning</button>
-                            <button class="tab-btn" data-tab="telemetry-tab">📊 Telemetry timeseries</button>
+                            <button class="tab-btn" data-tab="telemetry-tab">📊 Step Telemetry</button>
                             <button class="tab-btn" data-tab="logcat-tab">📋 Device logcat</button>
                         </div>
                         <button class="btn-danger btn-sm" id="btn-clear-telemetry">🗑️ Clear</button>
@@ -210,27 +213,10 @@
                             </div>
                         </div>
 
-                        <!-- Tab 2: Telemetry timeseries event flow -->
+                        <!-- Tab 2: Step Telemetry Details -->
                         <div class="tab-panel" id="telemetry-tab">
-                            <div class="table-scroll-container">
-                                <table class="telemetry-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Timestamp</th>
-                                            <th>Device Serial</th>
-                                            <th>APK Package</th>
-                                            <th>Step</th>
-                                            <th>Player Action</th>
-                                            <th>Visual Grabs</th>
-                                            <th>Engine Logs</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="telemetry-body">
-                                        <tr>
-                                            <td colspan="7" class="center-text dimmed">No event timeseries collected yet.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                            <div class="telemetry-details-container" id="telemetry-step-details">
+                                <span class="dimmed">No active step selected. Use the scrubber timeline to inspect step telemetry.</span>
                             </div>
                         </div>
 

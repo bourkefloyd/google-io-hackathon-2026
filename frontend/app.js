@@ -15,12 +15,13 @@ const elViewportPlaceholder = document.getElementById("viewport-placeholder");
 const elScreenGrab = document.getElementById("screen-grab");
 const elScreenGrabLlm = document.getElementById("screen-grab-llm");
 const elDualViewports = document.getElementById("dual-viewports");
+const elViewportTabs = document.getElementById("viewport-tabs");
 const elCoordinateOverlay = document.getElementById("coordinate-overlay");
 const elThoughtsBox = document.getElementById("thoughts-box");
 const elCommandBox = document.getElementById("command-box");
 const elStepBadge = document.getElementById("step-badge");
 const elStateBadge = document.getElementById("state-badge");
-const elTelemetryBody = document.getElementById("telemetry-body");
+const elTelemetryStepDetails = document.getElementById("telemetry-step-details");
 const elLogcatConsole = document.getElementById("logcat-console");
 const elClearTelemetry = document.getElementById("btn-clear-telemetry");
 const elRunSelect = document.getElementById("run-selector");
@@ -48,6 +49,35 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
         document.getElementById(btn.dataset.tab).classList.add("active");
     });
 });
+
+// Viewport Tabs Switching (Replay vs LLM Vision)
+let activeViewport = "replay";
+
+document.querySelectorAll(".viewport-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+        activeViewport = btn.dataset.viewport;
+        updateViewportToggles();
+    });
+});
+
+function updateViewportToggles() {
+    const elReplayWrapper = document.getElementById("wrapper-replay");
+    const elLlmWrapper = document.getElementById("wrapper-llm");
+    const tabReplay = document.querySelector('.viewport-tab[data-viewport="replay"]');
+    const tabLlm = document.querySelector('.viewport-tab[data-viewport="llm"]');
+    
+    if (activeViewport === "replay") {
+        if (elReplayWrapper) elReplayWrapper.classList.remove("hidden");
+        if (elLlmWrapper) elLlmWrapper.classList.add("hidden");
+        if (tabReplay) tabReplay.classList.add("active");
+        if (tabLlm) tabLlm.classList.remove("active");
+    } else {
+        if (elReplayWrapper) elReplayWrapper.classList.add("hidden");
+        if (elLlmWrapper) elLlmWrapper.classList.remove("hidden");
+        if (tabReplay) tabReplay.classList.remove("active");
+        if (tabLlm) tabLlm.classList.add("active");
+    }
+}
 
 // Max Steps Slider label listener
 elMaxSteps.addEventListener("input", (e) => {
@@ -250,6 +280,7 @@ elLaunchBtn.addEventListener("click", async () => {
     activeRunEvents = [];
     elViewportPlaceholder.classList.add("hidden");
     if (elDualViewports) elDualViewports.classList.add("hidden");
+    if (elViewportTabs) elViewportTabs.classList.add("hidden");
     elScreenGrab.classList.add("hidden");
     if (elScreenGrabLlm) elScreenGrabLlm.classList.add("hidden");
     elCoordinateOverlay.innerHTML = "";
@@ -404,7 +435,7 @@ function handlePlayUpdate(packet, deviceId) {
                 screenshot_llm: packet.screenshot_llm || "",
                 screenshot_llm_path: packet.screenshot_llm_path || "",
                 agent_reasoning: packet.reasoning || "",
-                actions_taken: packet.action && packet.action.includes("Tapped") ? [{type: "tap", params: {x: 0, y: 0}}] : [],
+                actions_taken: packet.actions_taken || (packet.action && packet.action.includes("Tapped") ? [{type: "tap", params: {x: 0, y: 0}}] : []),
                 action_summary: packet.action || "",
                 logs: ""
             };
@@ -418,6 +449,7 @@ function handlePlayUpdate(packet, deviceId) {
             if (packet.screenshot_llm_path) existingEvent.screenshot_llm_path = packet.screenshot_llm_path;
             if (packet.reasoning) existingEvent.agent_reasoning = packet.reasoning;
             if (packet.action) existingEvent.action_summary = packet.action;
+            if (packet.actions_taken) existingEvent.actions_taken = packet.actions_taken;
         }
 
         // Render current visual timeline
@@ -574,9 +606,12 @@ function selectTimelineStep(index) {
     if (hasScreenshot) {
         elViewportPlaceholder.classList.add("hidden");
         if (elDualViewports) elDualViewports.classList.remove("hidden");
+        if (elViewportTabs) elViewportTabs.classList.remove("hidden");
+        updateViewportToggles();
     } else {
         elViewportPlaceholder.classList.remove("hidden");
         if (elDualViewports) elDualViewports.classList.add("hidden");
+        if (elViewportTabs) elViewportTabs.classList.add("hidden");
     }
     
     // 2. Parse and render Structured Reasoning Cards
@@ -584,7 +619,21 @@ function selectTimelineStep(index) {
     
     // 3. Render coordinate tap dot overlay
     elCoordinateOverlay.innerHTML = "";
-    if (ev.action_summary && ev.action_summary.includes("Tapped position")) {
+    let hasTapDot = false;
+    if (ev.actions_taken && ev.actions_taken.length > 0) {
+        ev.actions_taken.forEach(action => {
+            if (action.type === "tap" && action.params) {
+                const relX = parseFloat(action.params.x);
+                const relY = parseFloat(action.params.y);
+                if (!isNaN(relX) && !isNaN(relY)) {
+                    renderTapOnOverlay(relX, relY);
+                    hasTapDot = true;
+                }
+            }
+        });
+    }
+    
+    if (!hasTapDot && ev.action_summary && ev.action_summary.includes("Tapped position")) {
         const matches = ev.action_summary.match(/\(([^)]+)\)/);
         if (matches && matches[1]) {
             const coords = matches[1].split(",");
@@ -620,6 +669,9 @@ function selectTimelineStep(index) {
     } else {
         elLogcatConsole.innerText = "No step-specific logcat output captured for this step.";
     }
+    
+    // 8. Update Step Telemetry details
+    renderStepTelemetry(ev);
     
     // 7. Update Prev/Next button states
     if (elBtnPrevStep && elBtnNextStep) {
@@ -795,6 +847,7 @@ async function loadHistoricRunDetails(runId) {
 function clearTimelineDetails() {
     elViewportPlaceholder.classList.remove("hidden");
     if (elDualViewports) elDualViewports.classList.add("hidden");
+    if (elViewportTabs) elViewportTabs.classList.add("hidden");
     elScreenGrab.classList.add("hidden");
     elScreenGrab.src = "";
     if (elScreenGrabLlm) {
@@ -809,6 +862,9 @@ function clearTimelineDetails() {
     elStateBadge.innerText = "idle";
     elStateBadge.className = "badge-tag state-tag idle";
     elLogcatConsole.innerText = "Waiting for game session logcat dump...";
+    if (elTelemetryStepDetails) {
+        elTelemetryStepDetails.innerHTML = `<span class="dimmed">No active step selected. Use the scrubber timeline to inspect step telemetry.</span>`;
+    }
     
     // Disable prev/next buttons on clear
     if (elBtnPrevStep && elBtnNextStep) {
@@ -818,49 +874,66 @@ function clearTimelineDetails() {
     selectedStepIndex = -1;
 }
 
-// Fetch Telemetry history from backend database
-async function loadTelemetryEvents() {
-    try {
-        const res = await fetch("/api/telemetry");
-        if (res.ok) {
-            const data = await res.json();
-            renderTelemetryTable(data.events);
-        }
-    } catch (e) {
-        console.error("Failed to load telemetry timeseries logs:", e);
-    }
-}
-
-function renderTelemetryTable(events) {
-    elTelemetryBody.innerHTML = "";
+function renderStepTelemetry(ev) {
+    if (!elTelemetryStepDetails) return;
     
-    if (!events || events.length === 0) {
-        elTelemetryBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="center-text dimmed">No event timeseries collected yet.</td>
-            </tr>
-        `;
+    if (!ev) {
+        elTelemetryStepDetails.innerHTML = `<span class="dimmed">No step telemetry available.</span>`;
         return;
     }
+    
+    const time = ev.timestamp ? ev.timestamp.split("T")[1].substring(0, 8) : "--:--:--";
+    const date = ev.timestamp ? ev.timestamp.split("T")[0] : "----/--/--";
+    
+    elTelemetryStepDetails.innerHTML = `
+        <div class="telemetry-grid">
+            <div class="telemetry-item">
+                <span class="telemetry-label">⏰ Start Time (UTC)</span>
+                <span class="telemetry-value">${time} <small class="dimmed">${date}</small></span>
+            </div>
+            <div class="telemetry-item">
+                <span class="telemetry-label">⏱️ Step Duration</span>
+                <span class="telemetry-value font-primary">${ev.duration !== undefined ? `${ev.duration} seconds` : "N/A"}</span>
+            </div>
+            <div class="telemetry-item">
+                <span class="telemetry-label">📍 Step Index</span>
+                <span class="telemetry-value badge-style">Step ${ev.step_index}</span>
+            </div>
+            <div class="telemetry-item">
+                <span class="telemetry-label">📱 Target Device</span>
+                <span class="telemetry-value"><code>${ev.emulator_id || "N/A"}</code></span>
+            </div>
+            <div class="telemetry-item">
+                <span class="telemetry-label">📦 APK Package</span>
+                <span class="telemetry-value"><code>${ev.package_name || "N/A"}</code></span>
+            </div>
+            <div class="telemetry-item" style="grid-column: span 2;">
+                <span class="telemetry-label">🎮 Player Actions & Tool Calls</span>
+                <div class="telemetry-value" style="font-size: 0.8rem; line-height: 1.4; margin-top: 0.25rem;">
+                    ${(() => {
+                        if (ev.actions_taken && ev.actions_taken.length > 0) {
+                            return ev.actions_taken.map(action => {
+                                let detail = `<strong style="color: var(--primary-hover);">${action.type.toUpperCase()}</strong>`;
+                                if (action.params && Object.keys(action.params).length > 0) {
+                                    detail += `: <code style="background: rgba(0,0,0,0.3); padding: 0.1rem 0.3rem; border-radius: 4px;">${JSON.stringify(action.params)}</code>`;
+                                }
+                                if (action.adb_command) {
+                                    detail += `<br><small class="dimmed" style="font-family: var(--font-mono); font-size: 0.68rem; margin-top: 0.25rem; display: block;">💻 ${action.adb_command}</small>`;
+                                }
+                                return `<div class="action-detail-row" style="padding: 0.3rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">${detail}</div>`;
+                            }).join("");
+                        }
+                        return ev.action_summary || "No actions performed (observing)";
+                    })()}
+                </div>
+            </div>
+        </div>
+    `;
+}
 
-    // Render latest first (reverse order)
-    events.slice().reverse().forEach(e => {
-        const tr = document.createElement("tr");
-        
-        // Format timestamp
-        const time = e.timestamp ? e.timestamp.split("T")[1].substring(0, 8) : "--:--:--";
-        
-        tr.innerHTML = `
-            <td><code>${time}</code></td>
-            <td><code>${e.emulator_id}</code></td>
-            <td><code>${e.package_name}</code></td>
-            <td><span class="badge-tag gcp">${e.step_index === 999 ? "END" : `Step ${e.step_index}${e.duration !== undefined ? ` (${e.duration}s)` : ""}`}</span></td>
-            <td>${e.action_summary}</td>
-            <td><span class="badge-tag ${e.has_screenshot ? 'yes' : 'dimmed'}">${e.has_screenshot ? 'Captured' : 'None'}</span></td>
-            <td><span class="badge-tag ${e.has_logs ? 'yes' : 'dimmed'}">${e.has_logs ? 'Dumped' : 'None'}</span></td>
-        `;
-        elTelemetryBody.appendChild(tr);
-    });
+// Retain empty backwards compatible shell to prevent other event listeners from failing
+async function loadTelemetryEvents() {
+    // Deprecated: Telemetry is now step-specific
 }
 
 // Clear local timeseries logs
