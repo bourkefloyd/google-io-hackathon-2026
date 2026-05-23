@@ -68,8 +68,8 @@ flowchart TD
     UI <-->|HTTP / SSE Stream| FastAPI
     FastAPI <-->|Orchestrates| Fleet
     FastAPI <-->|Runs / Manages| AGY
-    AGY <-->|Visual Play Loop (Screenshots & ADB Input)| Fleet
-    Fleet -->|Capture Logs & Event Data| FastAPI
+    AGY <-->|Visual Play Loop and ADB Input| Fleet
+    Fleet -->|Capture Logs and Event Data| FastAPI
     
     FastAPI -->|Write events| LocalFile
     FastAPI -->|Stream events| CloudRun
