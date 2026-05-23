@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JEPA 2 Simulated Player Telemetry Dashboard</title>
+    <!-- Google Fonts: Outfit (modern sans-serif) and Fira Code (monospace for logs) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode">
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <span class="logo-icon">🤖</span>
+                <div class="logo-text">
+                    <h1>JEPA 2 Fleet</h1>
+                    <p>Simulated Player Ingestion & Telemetry</p>
+                </div>
+            </div>
+            <div class="system-status">
+                <div class="status-indicator online" id="server-status">
+                    <span class="indicator-dot"></span>
+                    <span class="indicator-text">Backend Connected</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content Grid -->
+        <main class="dashboard-grid">
+            <!-- Left Panel: Configurations and Fleet Management -->
+            <section class="left-panel">
+                <!-- Config Card -->
+                <div class="dashboard-card glass-card">
+                    <div class="card-header">
+                        <h2>1. Configure Play Session</h2>
+                    </div>
+                    <div class="card-content">
+                        <!-- APK Uploader -->
+                        <div class="form-group">
+                            <label for="apk-uploader">Upload APK Build</label>
+                            <div class="upload-dropzone" id="dropzone">
+                                <input type="file" id="apk-uploader" accept=".apk" hidden>
+                                <span class="upload-icon">📦</span>
+                                <p class="upload-text">Drag & drop game APK or <strong>browse files</strong></p>
+                                <span class="upload-filename" id="upload-filename">No build selected</span>
+                            </div>
+                        </div>
+
+                        <!-- Device Selector -->
+                        <div class="form-group">
+                            <label for="device-selector">Target Android Device</label>
+                            <div class="select-container">
+                                <select id="device-selector">
+                                    <option value="">-- Refreshing Devices... --</option>
+                                </select>
+                                <button type="button" class="btn-secondary" id="btn-refresh-devices" title="Refresh Devices">🔄</button>
+                            </div>
+                        </div>
+
+                        <!-- Package Name Field -->
+                        <div class="form-group">
+                            <label for="package-name">Android Package Name</label>
+                            <input type="text" id="package-name" placeholder="com.unity.examplegame" value="com.unity.examplegame">
+                            <small class="help-text">Matches your Unity build bundle ID</small>
+                        </div>
+
+                        <!-- Max Steps Slider -->
+                        <div class="form-group">
+                            <div class="slider-labels">
+                                <label for="max-steps">Max Step Budget</label>
+                                <span id="steps-val">15 steps</span>
+                            </div>
+                            <input type="range" id="max-steps" min="5" max="40" value="15">
+                        </div>
+
+                        <!-- Instructions Prompt -->
+                        <div class="form-group">
+                            <label for="play-instructions">Simulated Playing Instructions</label>
+                            <textarea id="play-instructions" rows="4" placeholder="Enter target gameplay actions e.g.
+1. Click the 'Start Quickplay' button
+2. Wait 2 seconds for level loads
+3. Tap on the playing tiles repeatedly to matches
+4. If an ad banner pops up, tap back to exit."></textarea>
+                        </div>
+
+                        <!-- Launch Button -->
+                        <button type="button" class="btn-primary pulse" id="btn-launch-fleet" disabled>
+                            <span class="btn-icon">⚡</span>
+                            <span class="btn-text">Launch Simulated Player</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Active Fleet Monitor Card -->
+                <div class="dashboard-card glass-card">
+                    <div class="card-header">
+                        <h2>2. Active Fleet Status</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="fleet-status-container" id="fleet-list">
+                            <div class="empty-state">
+                                <p>No active simulated players running. Launch a session to orchestrate the fleet.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Live Replay and AI Reasoning -->
+            <section class="right-panel">
+                <div class="dashboard-card glass-card visual-card">
+                    <div class="card-header">
+                        <div class="header-with-badge">
+                            <h2>3. Live Gameplay Replay</h2>
+                            <span class="badge" id="step-badge">Idle</span>
+                        </div>
+                    </div>
+                    <div class="card-content visual-content">
+                        <!-- Live Emulator Viewport Container -->
+                        <div class="emulator-viewport" id="viewport-container">
+                            <div class="viewport-placeholder" id="viewport-placeholder">
+                                <span class="play-icon">🎬</span>
+                                <p>Replay stream is idle</p>
+                                <small>Telemetry screen grabs will render here in real-time</small>
+                            </div>
+                            <!-- Relative Visual Overlays (Tap Dots / Swipe Vectors) -->
+                            <img src="" id="screen-grab" class="screen-image hidden" alt="Emulator Screenshot">
+                            <div class="coordinate-overlay" id="coordinate-overlay"></div>
+                        </div>
+
+                        <!-- Agent Thoughts / Reasoning -->
+                        <div class="agent-thoughts-card">
+                            <h3>🤖 Play Agent Reasoning</h3>
+                            <div class="thoughts-box" id="thoughts-box">
+                                <span class="dimmed">Waiting for play agent turn reasoning...</span>
+                            </div>
+                        </div>
+
+                        <!-- Command Executed -->
+                        <div class="action-telemetry-box">
+                            <h3>🎮 Play Input Telemetry</h3>
+                            <div class="code-line" id="command-box">
+                                <code>adb shell idle</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Panel: Telemetry timeseries stream and logcats -->
+        <footer class="app-footer">
+            <div class="dashboard-card glass-card logs-card">
+                <div class="card-header logs-header">
+                    <div class="tabs-navigation">
+                        <button class="tab-btn active" data-tab="telemetry-tab">📊 Telemetry Timeseries Event Flow</button>
+                        <button class="tab-btn" data-tab="logcat-tab">📋 Device logcat Console</button>
+                    </div>
+                    <button class="btn-danger btn-sm" id="btn-clear-telemetry">🗑️ Clear Event Log</button>
+                </div>
+                <div class="card-content logs-content">
+                    <!-- Tab 1: Telemetry timeseries event flow -->
+                    <div class="tab-panel active" id="telemetry-tab">
+                        <div class="table-scroll-container">
+                            <table class="telemetry-table">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Device Serial</th>
+                                        <th>APK Package</th>
+                                        <th>Step</th>
+                                        <th>Player Action</th>
+                                        <th>Visual Grabs</th>
+                                        <th>Engine Logs</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="telemetry-body">
+                                    <tr>
+                                        <td colspan="7" class="center-text dimmed">No event timeseries collected yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Device logcat console -->
+                    <div class="tab-panel" id="logcat-tab">
+                        <div class="terminal-container">
+                            <pre class="terminal-log" id="logcat-console">Waiting for game session logcat dump... (Logs will compile and appear here at session end)</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
