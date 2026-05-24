@@ -1,5 +1,8 @@
 # 🚀 Autonomous Android Player Fleet & Telemetry Ingest
-### 🏆 Google I/O Hackathon 2026 Core Ingest Engine & Play-Simulations Console
+### 🏆 Top 6 Finalist at the Google I/O Hackathon (May 2026) 🏆
+**Core Ingest Engine & Play-Simulations Console** — Featured in the [Google I/O Hackathon Gallery](https://cerebralvalley.ai/e/google-io-hackathon/hackathon/gallery)
+
+*Selected as a **Top 6 Finalist** out of **150+ project submissions** at the live event hosted at **SHACK15** inside the historic **San Francisco Ferry Building**.*
 
 > [!NOTE]
 > **Hackathon Delivery Story**: This entire repository—from low-level zero-dependency ADB control layers to the premium glassmorphism web console, dual-resolution image pipeline, and the autonomous Google Antigravity visual play-loop—was designed, implemented, and fully optimized **entirely today (May 23, 2026)**.
