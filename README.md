@@ -5,6 +5,18 @@
 > **Hackathon Delivery Story**: This entire repository—from low-level zero-dependency ADB control layers to the premium glassmorphism web console, dual-resolution image pipeline, and the autonomous Google Antigravity visual play-loop—was designed, implemented, and fully optimized **entirely today (May 23, 2026)**.
 > It represents an intensive, high-speed collaboration between a human developer and **Antigravity**, a state-of-the-art agentic coding assistant designed by Google DeepMind, demonstrating the frontier of AI-assisted engineering.
 
+
+<p align="center">
+  <img src="dev-milestones/images/dashboard_portrait_run.jpg" width="49%" alt="Toon Blast Portrait Playthrough Console" />
+  <img src="dev-milestones/images/dashboard_landscape_run.jpg" width="49%" alt="Clash of Clans Landscape Playthrough Console" />
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/11Hqb10Qtwc" target="_blank">
+    <strong>🎥 Google I/O Hackathon 2026 Video Demo Walkthrough</strong>
+  </a>
+</p>
+
 ---
 
 ## 🎯 Purpose & Vision
